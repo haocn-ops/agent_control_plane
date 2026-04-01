@@ -100,6 +100,18 @@ npm run post-deploy:verify:readonly
 - synthetic runtime checks:
   - `Synthetic Runtime Checks`
   - [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml)
+- GitHub runtime bootstrap:
+  - `npm run github:actions:bootstrap -- --dry-run`
+  - [scripts/bootstrap_github_actions_runtime.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/bootstrap_github_actions_runtime.mjs)
+- provisioning submission helper:
+  - `npm run provisioning:submit -- --request <file> --endpoint <url>`
+  - [scripts/submit_provisioning_request.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/submit_provisioning_request.mjs)
+- tenant handoff state helper:
+  - `npm run tenant:handoff:update -- --bundle <file> --request <file> --verify <file>`
+  - [scripts/update_tenant_handoff_state.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/update_tenant_handoff_state.mjs)
+- tenant onboarding apply helper:
+  - `npm run tenant:onboarding:apply -- --request <file> --mode dry-run`
+  - [scripts/apply_tenant_bundle_changes.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/apply_tenant_bundle_changes.mjs)
 - secret rotation bundle:
   - `npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json --output-dir .secret-rotation`
 - tenant onboarding bundle:
@@ -110,5 +122,5 @@ npm run post-deploy:verify:readonly
 - 正式 Access application / service token 治理自動化
 - 監控 / 告警基線已接到 GitHub Actions runtime checks，但尚未接入完整監控平台與 oncall 值班流程
 - secret rotation 已有 runbook 與 bundle template，但尚未接入真正的 secret-store 自動化
-- staging / production environments 與 deploy/runtime workflows 已落地，但 GitHub 還缺 `CLOUDFLARE_API_TOKEN` secret 才能遠端執行 deploy workflow
+- staging / production environments 與 deploy/runtime workflows 已落地，repo 也已有 GitHub runtime bootstrap；但遠端 deploy 仍需提供真實 `CLOUDFLARE_API_TOKEN`
 - tenant provisioning 已有 `status.sh` / `provision.sh` / `verify.sh`，但仍未接入外部 provisioning 系統

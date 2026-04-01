@@ -100,9 +100,15 @@ npm run tenant:onboarding:bundle -- --tenant-id tenant_acme --deploy-env staging
 - `seed.sql`
 - `bundle.json`
 - `handoff.md`
+- `handoff-state.json`
 - `provisioning-request.json`
+- `rollback-request.json`
 - `status.sh`
 - `provision.sh`
+- `apply-request.sh`
+- `submit-request.sh`
+- `complete-handoff.sh`
+- `rollback.sh`
 - `verify.sh`
 
 其中：
@@ -110,6 +116,8 @@ npm run tenant:onboarding:bundle -- --tenant-id tenant_acme --deploy-env staging
 - `bundle.json` 是 bundle 的機器可讀摘要
 - `handoff.md` 是給接手工程師看的文字版交接說明
 - `provisioning-request.json` 是給外部 provisioning / ticket / 平台流程對接的固定輸入格式
+- `handoff-state.json` 是把 request / verify / 交接狀態折疊成單一證據檔的狀態入口
+- `rollback-request.json` 是保守型回滾時停用 provider / policy 的固定輸入
 
 若只需要 SQL，仍可單獨使用：
 
@@ -266,11 +274,14 @@ npm run post-deploy:verify
 - 建立臨時的 provider / policy / run
 - 在結束前把臨時 provider 與 policy 停用，減少殘留配置
 
-若要把最小接入流程收斂成兩個命令，建議直接在 bundle 目錄執行：
+若要把最小接入流程收斂成一條可執行 bundle，建議直接在 bundle 目錄執行：
 
 ```bash
 ./provision.sh apply
+./apply-request.sh dry-run
+./apply-request.sh write
 ./verify.sh write
+./complete-handoff.sh
 ```
 
 如果是 production 或共享 tenant，建議分兩段：
@@ -302,8 +313,10 @@ readonly 模式更適合正式交付，因為它不會建立新的 run 或修改
 同一份 JSON 內也已預先列出：
 
 - 需要匯入的 seed
+- 需要提交到外部流程的 request artifact
 - 需要覆寫的 provider endpoint / auth_ref
 - 需要 review 的 policy
+- 應保存到哪個 apply / rollback / handoff state 證據路徑
 - 應保存到哪個 verify summary 路徑
 
 如果外部系統要吃固定模板，可直接參考：
@@ -331,6 +344,51 @@ readonly 模式更適合正式交付，因為它不會建立新的 run 或修改
 若要先快速確認 bundle 內有哪些檔案、下一步要做什麼，先執行 `status.sh`。它會讀取 `bundle.json` 並列出本次 bundle 的摘要與建議下一步。
 
 若這次驗收本身就是交接證據，建議再把 `VERIFY_OUTPUT_PATH` 輸出的 `verify-write-summary.json` 或 `verify-readonly-summary.json` 一起保存在同一個 bundle 目錄。
+
+若要先把 provider / policy 變更做 dry-run，再正式寫入 control plane，可直接在 bundle 目錄執行：
+
+```bash
+./apply-request.sh dry-run
+./apply-request.sh write
+```
+
+若要直接用 repo 內的 CLI，而不是 bundle wrapper，也可用：
+
+```bash
+npm run tenant:onboarding:apply -- \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --mode dry-run
+```
+
+若外部 provisioning 流程有 HTTP API 或工單 webhook，可直接提交 bundle 內的 request artifact：
+
+```bash
+npm run provisioning:submit -- \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --endpoint https://<external-provisioning-endpoint>
+```
+
+這會額外產出 submission evidence JSON，方便後續交接或追查。
+
+若要把 provisioning request 與 verify 結果再折疊回同一份交接狀態，可執行：
+
+```bash
+npm run tenant:handoff:update -- \
+  --bundle .onboarding-bundles/tenant_acme/bundle.json \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --verify .onboarding-bundles/tenant_acme/verify-write-summary.json
+```
+
+預設會在 bundle 目錄下生成 `handoff-state.json`，讓接手方直接看到目前狀態、證據檔案與下一步建議。
+
+若需要保守回滾預設 provider / policy，而不是手工逐項停用，可直接用 bundle 內的 rollback helper：
+
+```bash
+./rollback.sh dry-run
+./rollback.sh write
+```
+
+這會讀取 `rollback-request.json`，對預設 provider / policy 做停用更新，並輸出 `rollback-evidence.json`。
 
 ## 6. 最小驗收出口
 
@@ -406,9 +464,9 @@ readonly 模式更適合正式交付，因為它不會建立新的 run 或修改
 
 這份 onboarding runbook 目前仍建立在以下現實上：
 
-- 已有 baseline tenant onboarding bundle，可生成 `seed.sql`、`bundle.json`、`handoff.md` 與 `provisioning-request.json`
+- 已有 baseline tenant onboarding bundle，可生成 `seed.sql`、`bundle.json`、`handoff.md`、`handoff-state.json`、`provisioning-request.json`、`rollback-request.json` 與對應 helper scripts
 - 沒有 UI 後台管理 provider / policy / secret
-- production onboarding 的最終 provisioning、secret 綁定與 provider / policy 校正仍需外部系統或人工執行
+- production onboarding 的最終 provisioning endpoint、secret 綁定與 Access / service token 仍需外部系統或人工執行
 - Access / service token 佈建仍需依賴外部平台流程
 
 因此它適合當前 MVP，但還不是長期的正式運營方案。

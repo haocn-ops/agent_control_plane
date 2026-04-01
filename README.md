@@ -53,7 +53,7 @@ Generate tenant seed SQL:
 npm run seed:sql -- --tenant-id tenant_demo
 ```
 
-Render a tenant onboarding bundle with seed SQL, metadata JSON, handoff markdown, and an executable verify helper:
+Render a tenant onboarding bundle with seed SQL, metadata JSON, handoff markdown, and executable `apply-request` / `submit-request` / `verify` / `complete-handoff` helpers:
 
 ```bash
 npm run tenant:onboarding:bundle -- --tenant-id tenant_acme --deploy-env staging
@@ -91,9 +91,13 @@ npm run post-deploy:verify:readonly
 | `npm run verify:local` | `check` + `smoke` |
 | `npm run verify:build` | Wrangler dry-run package validation |
 | `npm run access:ingress:plan -- --plan-file <plan.json>` | Render an access ingress plan and checklist for a tenant/environment |
+| `npm run github:actions:bootstrap -- --dry-run` | Validate or push the GitHub Actions runtime variables / secret bootstrap |
+| `npm run provisioning:submit -- --request <file> --endpoint <url>` | Submit a provisioning request artifact to an external workflow or ticket endpoint |
 | `npm run seed:sql -- --tenant-id <id>` | Render seed SQL for a tenant |
 | `npm run secret:rotation:bundle -- --plan <plan.json>` | Render a secret rotation bundle with checklist and helper script |
+| `npm run tenant:onboarding:apply -- --request <file> --mode dry-run` | Dry-run or apply tenant provider/policy changes from a provisioning request |
 | `npm run tenant:onboarding:bundle -- --tenant-id <id>` | Render tenant onboarding bundle files for a tenant |
+| `npm run tenant:handoff:update -- --bundle <file>` | Fold request/verify evidence back into a handoff-state JSON |
 | `npm run post-deploy:verify` | Write-mode remote verification for staging or dedicated verify tenants |
 | `npm run post-deploy:verify:readonly` | Readonly remote verification for production or shared tenants |
 | `npm run deploy` | Real Wrangler deploy |
@@ -114,11 +118,14 @@ npm run post-deploy:verify:readonly
 | [src/lib](/Users/zh/Documents/codeX/agent_control_plane/src/lib) | Shared helpers for DB, auth, approvals, cancellation, queue, runs |
 | [migrations](/Users/zh/Documents/codeX/agent_control_plane/migrations) | D1 schema migrations |
 | [scripts/smoke.ts](/Users/zh/Documents/codeX/agent_control_plane/scripts/smoke.ts) | Local smoke test harness |
+| [scripts/bootstrap_github_actions_runtime.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/bootstrap_github_actions_runtime.mjs) | Bootstrap GitHub Actions runtime variables / secret |
 | [scripts/post_deploy_verify.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/post_deploy_verify.mjs) | Remote verification script |
 | [scripts/render_access_ingress_plan.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_access_ingress_plan.mjs) | Access ingress plan and checklist renderer |
 | [scripts/render_seed_sql.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_seed_sql.mjs) | Seed SQL generator |
 | [scripts/render_secret_rotation_bundle.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_secret_rotation_bundle.mjs) | Secret rotation bundle renderer |
+| [scripts/submit_provisioning_request.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/submit_provisioning_request.mjs) | Submit a provisioning request artifact and capture evidence |
 | [scripts/render_tenant_onboarding_bundle.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_tenant_onboarding_bundle.mjs) | Tenant onboarding bundle renderer |
+| [scripts/update_tenant_handoff_state.mjs](/Users/zh/Documents/codeX/agent_control_plane/scripts/update_tenant_handoff_state.mjs) | Merge bundle/request/verify evidence into a handoff-state JSON |
 
 ## Document Map
 
@@ -205,6 +212,7 @@ For controlled staging rollout, use [.github/workflows/deploy-staging.yml](/User
 - it deploys the `staging` environment
 - it runs write-mode `post-deploy:verify`
 - it uploads `staging-deploy-manifest.json`, logs, and JSON summary as an artifact
+- before first remote use, you can bootstrap the required repo-side values with `npm run github:actions:bootstrap -- --dry-run`
 
 For production-safe remote checks without deploy, use [.github/workflows/production-readonly-verify.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/production-readonly-verify.yml):
 
@@ -221,13 +229,14 @@ For controlled production rollout, use [.github/workflows/deploy-production.yml]
 - it runs readonly `post-deploy:verify:readonly`
 - it uploads `production-deploy-manifest.json`, logs, and JSON summary as an artifact
 - it is designed to pair with a protected GitHub `production` environment for human approval
+- before first remote use, you can bootstrap the required repo-side values with `npm run github:actions:bootstrap -- --dry-run`
 
 For scheduled runtime checks, use [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml):
 
 - it runs scheduled or manual health probes against configured staging / production URLs
 - it can run production readonly verification on a schedule using repository variables
 - it uploads synthetic health and readonly verify artifacts for incident review
-- it currently uses repository variables for URLs / tenant / run ID, so it can start working without Cloudflare deploy credentials
+- it currently uses repository variables for URLs / tenant / run ID, so it can start working before deploy credentials are wired
 
 ## Known Gaps
 
@@ -237,7 +246,7 @@ The most important remaining work before serious production rollout is:
 - fully automated production tenant onboarding and external provisioning workflow
 - observability now has a concrete SLI/alerting baseline plus dashboard, incident template, and scheduled GitHub Actions runtime checks, but the repo still needs full monitoring-platform and oncall integration
 - secret rotation now has a concrete runbook/template, but the repo still needs real rotation automation and secret-store governance
-- GitHub `staging` / `production` environments and repository variables are now in place, but deploy workflows still need a GitHub-side `CLOUDFLARE_API_TOKEN` secret and any stricter branch policy you want before they can run remotely end-to-end
+- GitHub `staging` / `production` environments and repository variables are now in place, and the repo can bootstrap them via `npm run github:actions:bootstrap`; remote deploys still require a real Cloudflare API token plus any stricter branch policy you want
 
 ## Notes
 

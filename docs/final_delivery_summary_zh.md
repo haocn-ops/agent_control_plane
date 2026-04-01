@@ -36,12 +36,14 @@
 
 - staging / production Wrangler 配置與實際資源落地
 - GitHub `staging` / `production` environments 與 repository runtime variables 已落地
+- GitHub Actions runtime bootstrap helper
 - post-deploy verify 結構化 evidence
 - manual release gate manifest
 - `Deploy Staging` / `Deploy Production` / `Production Readonly Verify` / `Synthetic Runtime Checks` workflow artifact 與 manifest
 - GitHub Actions `Production Readonly Verify` 已實際成功執行一次：`run 23852973146`
 - access ingress plan / secret rotation bundle 可執行模板
-- onboarding bundle 內 `status.sh` / `verify.sh` / `provision.sh` / `provisioning-request.json`
+- onboarding bundle 內 `status.sh` / `provision.sh` / `apply-request.sh` / `submit-request.sh` / `verify.sh` / `complete-handoff.sh` / `rollback.sh`
+- provisioning submission helper、bundle apply helper 與 handoff-state evidence helper
 - ops handoff summary
 - observability / alerting baseline、dashboard template、integration manifest
 

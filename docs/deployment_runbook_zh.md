@@ -36,6 +36,24 @@
 
 驗證腳本現在也會輸出結構化步驟事件，讓後續排障時能直接看到每一步的開始時間、耗時與是否成功寫出 evidence。
 
+若要把 GitHub Actions deploy/runtime 所需的 repository variables 與 secret 也一起標準化，現在可直接使用：
+
+```bash
+npm run github:actions:bootstrap -- --dry-run
+```
+
+這個 bootstrap 會檢查並準備：
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `ACP_STAGING_BASE_URL`
+- `ACP_STAGING_TENANT_ID`
+- `ACP_PRODUCTION_BASE_URL`
+- `ACP_PRODUCTION_TENANT_ID`
+- `ACP_PRODUCTION_RUN_ID`
+- `CLOUDFLARE_API_TOKEN`
+
+若本機只有 Wrangler OAuth 登入，仍不足以餵給 GitHub Actions deploy workflow；你還是需要一個真正的 Cloudflare API token。
+
 ## 3. 部署前提
 
 ### 3.1 本地工具
@@ -291,6 +309,12 @@ npm run post-deploy:verify
 
 其中 `CLOUDFLARE_ACCOUNT_ID` 也可改由 repository variable `CLOUDFLARE_ACCOUNT_ID` 提供，減少重複保管一份非敏感值。
 
+若要先把 repository variables / secret 一次性對齊，可在本機先準備對應環境變數後執行：
+
+```bash
+npm run github:actions:bootstrap -- --repo haocn-ops/agent_control_plane
+```
+
 workflow 輸入：
 
 - `base_url`
@@ -371,6 +395,12 @@ artifact 內會包含：
   - deploy window
   - 必要時的 branch restriction
 
+repository variables / secret 也可以先用 bootstrap 對齊，再交由 workflow 做 deploy：
+
+```bash
+npm run github:actions:bootstrap -- --repo haocn-ops/agent_control_plane
+```
+
 workflow 輸入：
 
 - `change_ref`
@@ -422,6 +452,12 @@ artifact 內會包含：
 - `ACP_PRODUCTION_RUN_ID`
 
 若只設 base URL，它仍可執行 health probes；若再補齊 production tenant / run ID，就能在排程中一併跑 readonly verify。
+
+若要先驗證本機是否已備齊這些值與 deploy secret，可先跑：
+
+```bash
+npm run github:actions:bootstrap -- --dry-run
+```
 
 artifact 內會包含：
 

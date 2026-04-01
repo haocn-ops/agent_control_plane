@@ -32,8 +32,8 @@
 - [final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md)
 - [flow_failure_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/flow_failure_runbook_zh.md)
 - 如果是要交接給下一位工程師，優先把 `post-deploy:verify` 當成驗收出口來看
-- 如果是新 tenant 接入，優先把 onboarding bundle 內的 `provision.sh` 和 `verify.sh` 當成最小接入與驗收出口來看
-- 如果是新 tenant 接入，先用 onboarding bundle 內的 `status.sh` 快速看摘要，再用 `provision.sh` 和 `verify.sh` 完成接入與驗收
+- 如果是新 tenant 接入，優先把 onboarding bundle 內的 `provision.sh`、`apply-request.sh`、`verify.sh` 和 `complete-handoff.sh` 當成最小接入與驗收出口來看
+- 如果是新 tenant 接入，先用 onboarding bundle 內的 `status.sh` 快速看摘要，再用 `submit-request.sh`、`apply-request.sh`、`verify.sh` 完成接入與驗收
 
 ## 2. 各文件用途
 
@@ -86,7 +86,7 @@
 ## 4. 目前最值得注意的限制
 
 - 目前仍是 MVP，還不是完整 production 服務
-- 已有 baseline tenant onboarding bundle，但 Access / service token、最終 provisioning、secret 輪替與告警體系仍待補強
+- 已有 baseline tenant onboarding bundle 與 apply/submit/handoff helper，但 Access / service token、最終 provisioning、secret 輪替與告警體系仍待補強
 - staging 建議使用寫入式驗收
 - production 建議優先使用唯讀驗收
 - 交接時至少要留下 `base_url`、`tenant_id`、`trace_id`、`run_id`、`tool_provider_id`、`policy_id`

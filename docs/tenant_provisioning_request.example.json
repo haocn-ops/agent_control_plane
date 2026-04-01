@@ -12,9 +12,15 @@
     "output_dir": ".onboarding-bundles/tenant_acme",
     "metadata_json": ".onboarding-bundles/tenant_acme/bundle.json",
     "handoff_markdown": ".onboarding-bundles/tenant_acme/handoff.md",
+    "handoff_state_json": ".onboarding-bundles/tenant_acme/handoff-state.json",
     "provisioning_request_json": ".onboarding-bundles/tenant_acme/provisioning-request.json",
+    "rollback_request_json": ".onboarding-bundles/tenant_acme/rollback-request.json",
     "seed_sql": ".onboarding-bundles/tenant_acme/seed.sql",
     "provision_script": ".onboarding-bundles/tenant_acme/provision.sh",
+    "apply_request_script": ".onboarding-bundles/tenant_acme/apply-request.sh",
+    "submit_request_script": ".onboarding-bundles/tenant_acme/submit-request.sh",
+    "complete_handoff_script": ".onboarding-bundles/tenant_acme/complete-handoff.sh",
+    "rollback_script": ".onboarding-bundles/tenant_acme/rollback.sh",
     "status_script": ".onboarding-bundles/tenant_acme/status.sh",
     "verify_script": ".onboarding-bundles/tenant_acme/verify.sh"
   },
@@ -35,16 +41,29 @@
       "evidence_path": ".onboarding-bundles/tenant_acme/seed.sql"
     },
     {
+      "action_id": "handoff_submission",
+      "type": "external_submission",
+      "required": true,
+      "command": "./submit-request.sh https://<ticket-or-cmdb-endpoint>",
+      "evidence_path": ".onboarding-bundles/tenant_acme/provisioning-submit-evidence.json"
+    },
+    {
       "action_id": "provider_overrides",
       "type": "tool_provider_override",
       "required": true,
       "items": [
         {
           "tool_provider_id": "tp_email",
+          "name": "Email Gateway",
+          "provider_type": "mcp_server",
           "current_endpoint_url": "mock://email",
           "desired_endpoint_url": "<fill-me>",
           "current_auth_ref": null,
           "desired_auth_ref": "<fill-me>",
+          "visibility_policy_ref": null,
+          "execution_policy_ref": null,
+          "current_status": "active",
+          "desired_status": "active",
           "suggested_secret_binding_name": "<fill-me>",
           "required_before_verification": true,
           "status": "active"
@@ -58,13 +77,37 @@
       "items": [
         {
           "policy_id": "pol_mcp_email_external_approval_v1",
+          "channel": "mcp_tool_call",
+          "scope": {
+            "tool_provider_id": "tp_email",
+            "tool_name": "send_email"
+          },
+          "conditions": {
+            "target_classification": "external",
+            "risk_level": "high"
+          },
           "decision": "approval_required",
+          "approval_config": {
+            "approver_roles": [
+              "legal_approver"
+            ],
+            "timeout_seconds": 86400
+          },
+          "priority": 100,
           "tool_provider_id": "tp_email",
           "tool_name": "send_email",
           "status": "active",
-          "review_required": true
+          "review_required": true,
+          "desired_policy": null
         }
       ]
+    },
+    {
+      "action_id": "apply_bundle_changes",
+      "type": "bundle_apply",
+      "required": true,
+      "command": "./apply-request.sh write",
+      "evidence_path": ".onboarding-bundles/tenant_acme/apply-request-evidence.json"
     },
     {
       "action_id": "verification",
@@ -73,12 +116,21 @@
       "mode": "write",
       "command": "./verify.sh write",
       "evidence_path": ".onboarding-bundles/tenant_acme/verify-write-summary.json"
+    },
+    {
+      "action_id": "handoff_complete",
+      "type": "handoff_state_update",
+      "required": true,
+      "command": "./complete-handoff.sh",
+      "evidence_path": ".onboarding-bundles/tenant_acme/handoff-state.json"
     }
   ],
   "completion_criteria": [
+    "external submission evidence is attached to the bundle",
     "provider endpoint_url and auth_ref are updated from mock defaults",
     "required secrets are provisioned in the target Worker environment",
     "policy review is recorded in the external system",
-    "verify summary JSON is attached to the handoff evidence"
+    "verify summary JSON is attached to the handoff evidence",
+    "handoff-state.json reflects the final operator-visible status"
   ]
 }

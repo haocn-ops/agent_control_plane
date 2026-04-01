@@ -44,13 +44,15 @@
 - [ ] 如需 GitHub Actions 直接部署 staging，已確認 `Deploy Staging` workflow 的 `base_url` / `tenant_id` 正確
 - [ ] 如需 GitHub Actions 跑 production 唯讀驗收，已確認 `Production Readonly Verify` workflow 的 `base_url` / `tenant_id` / `run_id` 正確
 - [ ] 如需 GitHub Actions 直接部署 production，已確認 `Deploy Production` workflow 的 `change_ref` / `base_url` / `tenant_id` / `run_id` / `apply_migrations`
+- [ ] 如需同步 GitHub runtime 參數與 secret，已執行 `npm run github:actions:bootstrap -- --dry-run`
 - [ ] 已確認 repository variables 中的 `CLOUDFLARE_ACCOUNT_ID`、`ACP_*` runtime check 參數正確
 - [ ] 若要對 staging / verify tenant 做遠端寫入式驗收，已選對 `verification_mode=write`
 - [ ] 如有遠端驗收，已下載或記錄 workflow artifact 中的 logs / summary
 - [ ] 如需交接，已保留遠端驗收輸出的 JSON summary，或明確記錄 `VERIFY_OUTPUT_PATH`
 - [ ] 已確認 summary 內含 `started_at`、`completed_at`、`duration_ms`、`check_count` 與 `checks`
 - [ ] 已確認 workflow artifact 內有 `release-gate-manifest.json`，可直接讀取 inputs / outcomes / artifact 路徑
-- [ ] 若走 `Deploy Staging`，已確認 repository secrets 中存在 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`
+- [ ] 若走 `Deploy Staging`，已確認 repository secrets 中存在 `CLOUDFLARE_API_TOKEN`
+- [ ] 若走 `Deploy Staging` / `Deploy Production`，已確認 `CLOUDFLARE_ACCOUNT_ID` 由 repository variable 或 secret 提供
 - [ ] 如有使用 `Deploy Staging`，已確認 artifact 內有 `staging-deploy-manifest.json`
 - [ ] 如有使用 `Production Readonly Verify`，已確認 artifact 內有 `production-readonly-manifest.json`
 - [ ] 如有使用 `Deploy Production`，已確認 GitHub `production` environment protection 已啟用
