@@ -35,13 +35,15 @@
 ### 2.3 運維與交接
 
 - staging / production Wrangler 配置與實際資源落地
+- GitHub `staging` / `production` environments 與 repository runtime variables 已落地
 - post-deploy verify 結構化 evidence
 - manual release gate manifest
-- `Deploy Staging` / `Production Readonly Verify` workflow artifact 與 manifest
+- `Deploy Staging` / `Deploy Production` / `Production Readonly Verify` / `Synthetic Runtime Checks` workflow artifact 與 manifest
+- GitHub Actions `Production Readonly Verify` 已實際成功執行一次：`run 23852973146`
 - access ingress plan / secret rotation bundle 可執行模板
-- onboarding bundle 內 `status.sh` / `verify.sh` / `provision.sh`
+- onboarding bundle 內 `status.sh` / `verify.sh` / `provision.sh` / `provisioning-request.json`
 - ops handoff summary
-- observability / alerting baseline 文檔
+- observability / alerting baseline、dashboard template、integration manifest
 
 ## 3. 已落地環境
 
@@ -78,8 +80,9 @@
 - Access application / service token 的真正自動化建立與輪換
 - 監控系統、dashboard、告警通道與 oncall 流程的真實接入
 - secret rotation 的自動化執行與 secret-store 治理
-- production deploy / migration / approval gate 的更完整流水線
+- production deploy / migration / approval gate 的更完整人審與 Cloudflare deploy credential 接線
 - tenant provisioning 的更高程度自動化與外部系統串接
+- 雖然 bundle 已能生成外部 provisioning request artifact，但真正的工單/CMDB/API 串接仍需下一階段完成
 
 ## 6. 推薦下一步
 

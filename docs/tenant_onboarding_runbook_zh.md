@@ -100,9 +100,16 @@ npm run tenant:onboarding:bundle -- --tenant-id tenant_acme --deploy-env staging
 - `seed.sql`
 - `bundle.json`
 - `handoff.md`
+- `provisioning-request.json`
 - `status.sh`
 - `provision.sh`
 - `verify.sh`
+
+其中：
+
+- `bundle.json` 是 bundle 的機器可讀摘要
+- `handoff.md` 是給接手工程師看的文字版交接說明
+- `provisioning-request.json` 是給外部 provisioning / ticket / 平台流程對接的固定輸入格式
 
 若只需要 SQL，仍可單獨使用：
 
@@ -283,6 +290,26 @@ npm run post-deploy:verify:readonly
 
 readonly 模式更適合正式交付，因為它不會建立新的 run 或修改 provider / policy，只會確認現有 tenant 的讀取與 SSE 能力。
 
+若這次不是由同一位操作者完成，而是要交給外部平台或工單流程接手，建議先補完 `provisioning-request.json` 裡的這些欄位，再進入 `provision.sh`：
+
+- `external_handoff.request_owner`
+- `external_handoff.requester_team`
+- `external_handoff.change_ticket`
+- `external_handoff.target_completion_date`
+- `external_handoff.approver`
+- `external_handoff.external_system_record`
+
+同一份 JSON 內也已預先列出：
+
+- 需要匯入的 seed
+- 需要覆寫的 provider endpoint / auth_ref
+- 需要 review 的 policy
+- 應保存到哪個 verify summary 路徑
+
+如果外部系統要吃固定模板，可直接參考：
+
+- [tenant_provisioning_request.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_provisioning_request.example.json)
+
 ### 5.8 保存接入結果
 
 至少記錄以下資訊，供之後維運與交接：
@@ -296,6 +323,8 @@ readonly 模式更適合正式交付，因為它不會建立新的 run 或修改
 - 驗收日期與操作者
 
 若使用 tenant onboarding bundle 腳本，建議把生成的 `bundle.json` 與 `handoff.md` 一起存檔，作為最小交接包。
+
+若要把交接包進一步接到外部 provisioning 流程，建議把 `provisioning-request.json` 一起保存，並把它當作 ticket / workflow / CMDB 輸入模板。
 
 若要降低人工出錯，優先直接執行 bundle 內的 `verify.sh`，它會自動把驗收輸出寫到同一個 bundle 目錄。
 
@@ -377,9 +406,9 @@ readonly 模式更適合正式交付，因為它不會建立新的 run 或修改
 
 這份 onboarding runbook 目前仍建立在以下現實上：
 
-- 已有 baseline tenant onboarding bundle，可生成 `seed.sql`、`bundle.json` 與 `handoff.md`
+- 已有 baseline tenant onboarding bundle，可生成 `seed.sql`、`bundle.json`、`handoff.md` 與 `provisioning-request.json`
 - 沒有 UI 後台管理 provider / policy / secret
-- production onboarding 的最終 provisioning、secret 綁定與 provider / policy 校正仍以人工操作為主
+- production onboarding 的最終 provisioning、secret 綁定與 provider / policy 校正仍需外部系統或人工執行
 - Access / service token 佈建仍需依賴外部平台流程
 
 因此它適合當前 MVP，但還不是長期的正式運營方案。

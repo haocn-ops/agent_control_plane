@@ -30,6 +30,22 @@
 - write verify summary: `/tmp/agent-control-plane-production-verify-write.json`
 - readonly verify summary: `/tmp/agent-control-plane-production-verify-readonly.json`
 
+### 2.3 GitHub environments / variables
+
+- GitHub environment: `staging`
+- GitHub environment: `production`
+- `production` 已設 required reviewer：`haocn-ops`
+- repository variables 已設：
+  - `CLOUDFLARE_ACCOUNT_ID`
+  - `ACP_STAGING_BASE_URL`
+  - `ACP_STAGING_TENANT_ID`
+  - `ACP_PRODUCTION_BASE_URL`
+  - `ACP_PRODUCTION_TENANT_ID`
+  - `ACP_PRODUCTION_RUN_ID`
+- GitHub Actions `Production Readonly Verify` 最近一次成功 run:
+  - run id: `23852973146`
+  - URL: [actions/runs/23852973146](https://github.com/haocn-ops/agent_control_plane/actions/runs/23852973146)
+
 ## 3. 入口保護現況
 
 - staging / production 都以 `NORTHBOUND_AUTH_MODE=trusted_edge` 部署
@@ -75,9 +91,15 @@ npm run post-deploy:verify:readonly
 - staging deploy:
   - `Deploy Staging`
   - [.github/workflows/deploy-staging.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/deploy-staging.yml)
+- production deploy:
+  - `Deploy Production`
+  - [.github/workflows/deploy-production.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/deploy-production.yml)
 - production readonly verify:
   - `Production Readonly Verify`
   - [.github/workflows/production-readonly-verify.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/production-readonly-verify.yml)
+- synthetic runtime checks:
+  - `Synthetic Runtime Checks`
+  - [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml)
 - secret rotation bundle:
   - `npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json --output-dir .secret-rotation`
 - tenant onboarding bundle:
@@ -86,7 +108,7 @@ npm run post-deploy:verify:readonly
 ## 6. 目前仍需補強的運維項
 
 - 正式 Access application / service token 治理自動化
-- 監控 / 告警基線已成文，但尚未接入真實監控系統與 oncall 值班流程
+- 監控 / 告警基線已接到 GitHub Actions runtime checks，但尚未接入完整監控平台與 oncall 值班流程
 - secret rotation 已有 runbook 與 bundle template，但尚未接入真正的 secret-store 自動化
-- staging deploy 與 production readonly verify workflow 已落地，但 production deploy / migration / approval gate 仍未完全自動化
+- staging / production environments 與 deploy/runtime workflows 已落地，但 GitHub 還缺 `CLOUDFLARE_API_TOKEN` secret 才能遠端執行 deploy workflow
 - tenant provisioning 已有 `status.sh` / `provision.sh` / `verify.sh`，但仍未接入外部 provisioning 系統

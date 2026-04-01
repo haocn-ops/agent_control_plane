@@ -142,6 +142,8 @@ Start here based on what you need:
   - [docs/observability_alerting_baseline_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_alerting_baseline_zh.md)
 - Monitoring dashboard template:
   - [docs/monitoring_dashboard_template.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/monitoring_dashboard_template.example.json)
+- Observability integration manifest:
+  - [docs/observability_integration_manifest.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_integration_manifest.example.json)
 - Incident response checklist:
   - [docs/incident_response_checklist_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/incident_response_checklist_zh.md)
 - Release checklist:
@@ -152,6 +154,8 @@ Start here based on what you need:
   - [docs/secret_rotation_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/secret_rotation_runbook_zh.md)
 - Tenant onboarding:
   - [docs/tenant_onboarding_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_onboarding_runbook_zh.md)
+- Tenant provisioning request example:
+  - [docs/tenant_provisioning_request.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_provisioning_request.example.json)
 - Ops handoff summary:
   - [docs/ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md)
 - Multi-env Wrangler example:
@@ -208,15 +212,32 @@ For production-safe remote checks without deploy, use [.github/workflows/product
 - it uploads `production-readonly-manifest.json`, logs, and JSON summary as an artifact
 - it does not deploy or mutate production data
 
+For controlled production rollout, use [.github/workflows/deploy-production.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/deploy-production.yml):
+
+- it runs `verify:local`
+- it runs `wrangler deploy --dry-run --env=""`
+- it can optionally run `wrangler d1 migrations apply ... --remote --env=""`
+- it deploys the top-level production worker
+- it runs readonly `post-deploy:verify:readonly`
+- it uploads `production-deploy-manifest.json`, logs, and JSON summary as an artifact
+- it is designed to pair with a protected GitHub `production` environment for human approval
+
+For scheduled runtime checks, use [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml):
+
+- it runs scheduled or manual health probes against configured staging / production URLs
+- it can run production readonly verification on a schedule using repository variables
+- it uploads synthetic health and readonly verify artifacts for incident review
+- it currently uses repository variables for URLs / tenant / run ID, so it can start working without Cloudflare deploy credentials
+
 ## Known Gaps
 
 The most important remaining work before serious production rollout is:
 
 - real Access / service-token deployment automation and governance rollout
 - fully automated production tenant onboarding and external provisioning workflow
-- observability now has a concrete SLI/alerting baseline plus dashboard and incident templates, but the repo still needs real monitoring-system integration and a staffed oncall process
+- observability now has a concrete SLI/alerting baseline plus dashboard, incident template, and scheduled GitHub Actions runtime checks, but the repo still needs full monitoring-platform and oncall integration
 - secret rotation now has a concrete runbook/template, but the repo still needs real rotation automation and secret-store governance
-- staging deploy and production readonly verification now have manual workflows, but production deploy promotion, migration orchestration, and release approval policy are still not fully automated
+- GitHub `staging` / `production` environments and repository variables are now in place, but deploy workflows still need a GitHub-side `CLOUDFLARE_API_TOKEN` secret and any stricter branch policy you want before they can run remotely end-to-end
 
 ## Notes
 

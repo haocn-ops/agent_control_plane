@@ -30,15 +30,28 @@ function normalizeOptionalString(rawValue) {
   return trimmed === "" ? null : trimmed;
 }
 
+function extractSecretBindingName(authRef) {
+  if (typeof authRef !== "string") {
+    return null;
+  }
+  const [scheme, bindingName] = authRef.split(":", 2);
+  if (!scheme || !bindingName) {
+    return null;
+  }
+  return bindingName.trim() || null;
+}
+
 function buildBundleSummary({
   tenantId,
   deployEnv,
   createdAt,
   baseUrl,
+  repoRoot,
   outputDir,
   seedSqlPath,
   metadataPath,
   handoffPath,
+  provisioningRequestPath,
   provisionScriptPath,
   statusScriptPath,
   verifyScriptPath,
@@ -49,8 +62,8 @@ function buildBundleSummary({
   const policies = buildDefaultPolicies(tenantId);
   const d1DatabaseName = deployEnv === "production" ? "agent-control-plane" : "agent-control-plane-staging";
   const wranglerEnvSuffix = deployEnv === "production" ? "" : " --env staging";
-  const writeVerifyCommand = `BASE_URL="${baseUrl}" TENANT_ID="${tenantId}" VERIFY_OUTPUT_PATH="${verifyWriteSummaryPath}" npm run post-deploy:verify`;
-  const readonlyVerifyCommand = `BASE_URL="${baseUrl}" TENANT_ID="${tenantId}" RUN_ID="<existing_run_id>" VERIFY_OUTPUT_PATH="${verifyReadonlySummaryPath}" npm run post-deploy:verify:readonly`;
+  const writeVerifyCommand = `BASE_URL="${baseUrl}" TENANT_ID="${tenantId}" VERIFY_OUTPUT_PATH="${verifyWriteSummaryPath}" npm --prefix "${repoRoot}" run post-deploy:verify`;
+  const readonlyVerifyCommand = `BASE_URL="${baseUrl}" TENANT_ID="${tenantId}" RUN_ID="<existing_run_id>" VERIFY_OUTPUT_PATH="${verifyReadonlySummaryPath}" npm --prefix "${repoRoot}" run post-deploy:verify:readonly`;
   const recommendedVerifyCommand = deployEnv === "production" ? readonlyVerifyCommand : writeVerifyCommand;
   const recommendedVerifySummaryPath = deployEnv === "production" ? verifyReadonlySummaryPath : verifyWriteSummaryPath;
 
@@ -60,11 +73,13 @@ function buildBundleSummary({
     deploy_env: deployEnv,
     created_at: createdAt,
     base_url: baseUrl,
+    repo_root: repoRoot,
     output_dir: outputDir,
     files: {
       seed_sql: seedSqlPath,
       metadata_json: metadataPath,
       handoff_markdown: handoffPath,
+      provisioning_request_json: provisioningRequestPath,
       provision_script: provisionScriptPath,
       status_script: statusScriptPath,
       verify_script: verifyScriptPath,
@@ -93,6 +108,7 @@ function buildBundleSummary({
       seed_import: `wrangler d1 execute ${d1DatabaseName} --remote --file ${seedSqlPath}${wranglerEnvSuffix}`,
       provider_list: `curl "${baseUrl}/api/v1/tool-providers" -H "X-Tenant-Id: ${tenantId}"`,
       policy_list: `curl "${baseUrl}/api/v1/policies" -H "X-Tenant-Id: ${tenantId}"`,
+      provisioning_request_review: `cat ${provisioningRequestPath}`,
       provision_helper: `./provision.sh apply`,
       status_helper: `./status.sh`,
       post_deploy_verify: recommendedVerifyCommand,
@@ -106,11 +122,105 @@ function buildBundleSummary({
       "tool_provider_id",
       "policy_id",
       "secret_binding_names",
+      "request_ticket",
+      "request_owner",
+      "external_system_record",
       "run_id",
       "verification_date",
       "operator",
       "verify_summary_json",
       "verify_script",
+      "repo_root",
+    ],
+  };
+}
+
+function buildProvisioningRequest(summary) {
+  const providerOverrides = summary.provider_defaults.map((provider) => {
+    const currentSecretBinding = extractSecretBindingName(provider.auth_ref);
+    const usesMockEndpoint = provider.endpoint_url.startsWith("mock://");
+    return {
+      tool_provider_id: provider.tool_provider_id,
+      current_endpoint_url: provider.endpoint_url,
+      desired_endpoint_url: usesMockEndpoint ? "<fill-me>" : provider.endpoint_url,
+      current_auth_ref: provider.auth_ref,
+      desired_auth_ref: provider.auth_ref ?? "<fill-me>",
+      suggested_secret_binding_name: currentSecretBinding ?? "<fill-me>",
+      required_before_verification: usesMockEndpoint || provider.auth_ref === null,
+      status: provider.status,
+    };
+  });
+
+  return {
+    schema_version: "2026-04-01",
+    request_type: "tenant_onboarding",
+    status: "draft",
+    tenant: {
+      tenant_id: summary.tenant_id,
+      deploy_env: summary.deploy_env,
+      base_url: summary.base_url,
+    },
+    bundle: {
+      created_at: summary.created_at,
+      repo_root: summary.repo_root,
+      output_dir: summary.output_dir,
+      metadata_json: summary.files.metadata_json,
+      handoff_markdown: summary.files.handoff_markdown,
+      provisioning_request_json: summary.files.provisioning_request_json,
+      seed_sql: summary.files.seed_sql,
+      provision_script: summary.files.provision_script,
+      status_script: summary.files.status_script,
+      verify_script: summary.files.verify_script,
+    },
+    external_handoff: {
+      request_owner: "<fill-me>",
+      requester_team: "<fill-me>",
+      change_ticket: "<fill-me>",
+      target_completion_date: "<fill-me>",
+      approver: "<fill-me>",
+      external_system_record: "<fill-me>",
+    },
+    actions: [
+      {
+        action_id: "seed_import",
+        type: "d1_seed_import",
+        required: true,
+        command: summary.suggested_commands.seed_import,
+        evidence_path: summary.files.seed_sql,
+      },
+      {
+        action_id: "provider_overrides",
+        type: "tool_provider_override",
+        required: true,
+        items: providerOverrides,
+      },
+      {
+        action_id: "policy_review",
+        type: "policy_review",
+        required: true,
+        items: summary.policy_defaults.map((policy) => ({
+          policy_id: policy.policy_id,
+          decision: policy.decision,
+          tool_provider_id: policy.tool_provider_id,
+          tool_name: policy.tool_name,
+          status: policy.status,
+          review_required: true,
+        })),
+      },
+      {
+        action_id: "verification",
+        type: "post_deploy_verify",
+        required: true,
+        mode: summary.deploy_env === "production" ? "readonly" : "write",
+        command: summary.suggested_commands.verify_helper,
+        evidence_path: summary.verification_artifacts.recommended_summary_json,
+      },
+    ],
+    completion_criteria: [
+      "provider endpoint_url and auth_ref are updated from mock defaults",
+      "required secrets are provisioned in the target Worker environment",
+      "policy review is recorded in the external system",
+      "verify summary JSON is attached to the handoff evidence",
     ],
   };
 }
@@ -124,18 +234,24 @@ function renderVerifyScript(summary) {
     'SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"',
     `DEFAULT_BASE_URL="${summary.base_url}"`,
     `DEFAULT_TENANT_ID="${summary.tenant_id}"`,
+    `DEFAULT_REPO_ROOT="${summary.repo_root}"`,
     'MODE="${1:-${VERIFY_MODE:-' + defaultMode + '}}"',
     'ARG_RUN_ID="${2:-}"',
     'RUN_ID="${RUN_ID:-${EXISTING_RUN_ID:-${ARG_RUN_ID}}}"',
     'BASE_URL="${BASE_URL:-${DEFAULT_BASE_URL}}"',
     'TENANT_ID="${TENANT_ID:-${DEFAULT_TENANT_ID}}"',
+    'REPO_ROOT="${REPO_ROOT:-${DEFAULT_REPO_ROOT}}"',
+    'if [ ! -f "$REPO_ROOT/package.json" ]; then',
+    '  echo "package.json not found under REPO_ROOT=$REPO_ROOT; override REPO_ROOT before running verify.sh" >&2',
+    "  exit 1",
+    "fi",
     "",
     'case "$MODE" in',
     "  write)",
     '    VERIFY_OUTPUT_PATH="${VERIFY_OUTPUT_PATH:-${SCRIPT_DIR}/verify-write-summary.json}" \\',
     '      BASE_URL="$BASE_URL" \\',
     '      TENANT_ID="$TENANT_ID" \\',
-    "      npm run post-deploy:verify",
+    '      npm --prefix "$REPO_ROOT" run post-deploy:verify',
     "    ;;",
     "  readonly)",
     '    if [ -z "$RUN_ID" ]; then',
@@ -146,7 +262,7 @@ function renderVerifyScript(summary) {
     '      BASE_URL="$BASE_URL" \\',
     '      TENANT_ID="$TENANT_ID" \\',
     '      RUN_ID="$RUN_ID" \\',
-    "      npm run post-deploy:verify:readonly",
+    '      npm --prefix "$REPO_ROOT" run post-deploy:verify:readonly',
     "    ;;",
     "  *)",
     '    echo "Usage: $0 {write|readonly} [run_id]" >&2',
@@ -264,6 +380,7 @@ Created at: \`${summary.created_at}\`
 - Seed SQL: \`${summary.files.seed_sql}\`
 - Metadata JSON: \`${summary.files.metadata_json}\`
 - Handoff markdown: \`${summary.files.handoff_markdown}\`
+- Provisioning request JSON: \`${summary.files.provisioning_request_json}\`
 - Provision helper script: \`${summary.files.provision_script}\`
 - Verify helper script: \`${summary.files.verify_script}\`
 - Recommended verify summary JSON: \`${summary.verification_artifacts.recommended_summary_json}\`
@@ -292,6 +409,8 @@ ${summary.policy_defaults
 ${summary.suggested_commands.seed_import}
 ${summary.suggested_commands.provider_list}
 ${summary.suggested_commands.policy_list}
+# External provisioning handoff
+${summary.suggested_commands.provisioning_request_review}
 # Recommended post-deploy verification
 ${summary.suggested_commands.post_deploy_verify}
 # Direct bundle helper
@@ -308,6 +427,7 @@ ${summary.handoff_fields.map((field) => `- \`${field}\``).join("\n")}
 - 建議把驗收輸出的 JSON summary 一起保存在 bundle 目錄，作為交接證據的一部分。
 - \`verify.sh\` 已預設寫入 bundle 目錄並設為可執行，適合直接交接給下一位操作者。
 - \`provision.sh\` 會先匯入 seed，再提示下一步驗收指令，適合半自動化接入。
+- \`provisioning-request.json\` 是給外部 provisioning / ticket / handoff 流程用的固定輸入格式，方便後續接系統或人工審核。
 - 若是 production，建議先完成受控小流量驗收，再用 readonly 模式保留最終交接證據。
 `;
 }
@@ -321,6 +441,7 @@ async function main() {
   const deployEnv = normalizeDeployEnv(readArg("--deploy-env"));
   const createdAt = readArg("--created-at") ?? new Date().toISOString();
   const baseUrl = readArg("--base-url") ?? "https://<your-worker-domain>";
+  const repoRoot = resolve(".");
   const outputDir = resolve(readArg("--output-dir") ?? `.onboarding-bundles/${tenantId}`);
 
   await mkdir(outputDir, { recursive: true });
@@ -328,6 +449,7 @@ async function main() {
   const seedSqlPath = join(outputDir, "seed.sql");
   const metadataPath = join(outputDir, "bundle.json");
   const handoffPath = join(outputDir, "handoff.md");
+  const provisioningRequestPath = join(outputDir, "provisioning-request.json");
   const provisionScriptPath = join(outputDir, "provision.sh");
   const statusScriptPath = join(outputDir, "status.sh");
   const verifyScriptPath = join(outputDir, "verify.sh");
@@ -340,10 +462,12 @@ async function main() {
     deployEnv,
     createdAt,
     baseUrl,
+    repoRoot,
     outputDir,
     seedSqlPath,
     metadataPath,
     handoffPath,
+    provisioningRequestPath,
     provisionScriptPath,
     statusScriptPath,
     verifyScriptPath,
@@ -351,6 +475,7 @@ async function main() {
     verifyReadonlySummaryPath,
   });
   const handoffMarkdown = renderHandoffMarkdown(summary);
+  const provisioningRequest = buildProvisioningRequest(summary);
   const provisionScript = renderProvisionScript(summary);
   const statusScript = renderStatusScript(summary);
   const verifyScript = renderVerifyScript(summary);
@@ -359,6 +484,7 @@ async function main() {
     writeFile(seedSqlPath, seedSql, "utf8"),
     writeFile(metadataPath, `${JSON.stringify(summary, null, 2)}\n`, "utf8"),
     writeFile(handoffPath, handoffMarkdown, "utf8"),
+    writeFile(provisioningRequestPath, `${JSON.stringify(provisioningRequest, null, 2)}\n`, "utf8"),
     writeFile(provisionScriptPath, provisionScript, "utf8"),
     writeFile(statusScriptPath, statusScript, "utf8"),
     writeFile(verifyScriptPath, verifyScript, "utf8"),

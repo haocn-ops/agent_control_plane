@@ -1,0 +1,287 @@
+{
+  "version": "2026-04-01",
+  "service": "agent-control-plane",
+  "description": "Monitoring integration contract for synthetic checks, alert routing, and evidence summaries. Replace placeholders with your platform-specific IDs.",
+  "required_runtime_inputs": [
+    "BASE_URL",
+    "TENANT_ID",
+    "OBS_SYNTH_SUBJECT",
+    "OBS_SYNTH_ROLES"
+  ],
+  "synthetic_checks": [
+    {
+      "id": "health_global",
+      "environment": "staging_or_production",
+      "schedule": "every 1 minute",
+      "executor": "synthetic platform or cron worker",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/health",
+        "headers": {
+          "X-Tenant-Id": "${TENANT_ID}",
+          "X-Authenticated-Subject": "${OBS_SYNTH_SUBJECT}",
+          "X-Authenticated-Roles": "${OBS_SYNTH_ROLES}"
+        }
+      },
+      "success_criteria": {
+        "status_codes": [
+          200
+        ],
+        "json_body": {
+          "path": "$.ok",
+          "equals": true
+        },
+        "latency_ms_p95_below": 1500
+      },
+      "alert_rule_refs": [
+        "health_5xx_burst"
+      ],
+      "evidence_summary": {
+        "output": "synthetic-health-${environment}.json",
+        "required_fields": [
+          "check_id",
+          "base_url",
+          "tenant_id",
+          "timestamp",
+          "status_code",
+          "latency_ms",
+          "trace_id"
+        ]
+      }
+    },
+    {
+      "id": "a2a_stream_auth",
+      "environment": "production",
+      "schedule": "every 5 minutes",
+      "executor": "synthetic platform or cron worker",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/a2a/message:stream",
+        "headers": {
+          "X-Tenant-Id": "${TENANT_ID}",
+          "X-Authenticated-Subject": "${OBS_SYNTH_SUBJECT}",
+          "X-Authenticated-Roles": "${OBS_SYNTH_ROLES}"
+        }
+      },
+      "success_criteria": {
+        "status_codes": [
+          200
+        ],
+        "sse_probe_window_seconds": 10,
+        "requires_first_event": true
+      },
+      "alert_rule_refs": [
+        "a2a_stream_auth_regression"
+      ],
+      "evidence_summary": {
+        "output": "synthetic-a2a-stream-${environment}.json",
+        "required_fields": [
+          "check_id",
+          "timestamp",
+          "status_code",
+          "first_event_received",
+          "trace_id"
+        ]
+      }
+    },
+    {
+      "id": "mcp_provider_ready",
+      "environment": "production",
+      "schedule": "every 10 minutes",
+      "executor": "synthetic platform or cron worker",
+      "provider_selector": "all active providers",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/mcp/{provider}",
+        "headers": {
+          "X-Tenant-Id": "${TENANT_ID}",
+          "X-Authenticated-Subject": "${OBS_SYNTH_SUBJECT}",
+          "X-Authenticated-Roles": "${OBS_SYNTH_ROLES}"
+        }
+      },
+      "success_criteria": {
+        "status_codes": [
+          200
+        ],
+        "sse_probe_window_seconds": 10,
+        "requires_first_event": true
+      },
+      "alert_rule_refs": [
+        "mcp_provider_not_ready"
+      ],
+      "evidence_summary": {
+        "output": "synthetic-mcp-ready-${provider}-${environment}.json",
+        "required_fields": [
+          "check_id",
+          "provider",
+          "timestamp",
+          "status_code",
+          "first_event_received",
+          "trace_id"
+        ]
+      }
+    },
+    {
+      "id": "production_readonly_verify",
+      "environment": "production",
+      "schedule": "every 15 minutes",
+      "executor": "post-deploy verify wrapper or synthetic scheduler",
+      "command_contract": {
+        "script": "scripts/post_deploy_verify.mjs",
+        "mode": "readonly",
+        "required_env": [
+          "BASE_URL",
+          "TENANT_ID",
+          "RUN_ID",
+          "SUBJECT_ID",
+          "SUBJECT_ROLES"
+        ]
+      },
+      "success_criteria": {
+        "summary_json_path": "$.ok",
+        "equals": true
+      },
+      "alert_rule_refs": [
+        "production_readonly_check_failed"
+      ],
+      "evidence_summary": {
+        "output": "verify-production-readonly-${timestamp}.json",
+        "required_fields": [
+          "ok",
+          "duration_ms",
+          "base_url",
+          "tenant_id",
+          "mode",
+          "run_id",
+          "check_count"
+        ]
+      }
+    }
+  ],
+  "alert_rules": [
+    {
+      "id": "run_create_error_burst",
+      "severity": "page",
+      "condition": "POST /api/v1/runs 5xx ratio above 1% over 10 minutes",
+      "route_ref": "page_primary",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "approval_timeout_ratio_high",
+      "severity": "ticket",
+      "condition": "approval_expired ratio above 10% over 1 hour",
+      "route_ref": "ticket_platform",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "health_5xx_burst",
+      "severity": "page",
+      "condition": "health synthetic success rate below 99.5% over 5 minutes",
+      "route_ref": "page_primary",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "a2a_stream_auth_regression",
+      "severity": "ticket",
+      "condition": "a2a stream synthetic returns 401 or 5xx twice in a row",
+      "route_ref": "ticket_platform",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "mcp_provider_not_ready",
+      "severity": "ticket",
+      "condition": "any active provider fails ready probe 3 times in a row",
+      "route_ref": "ticket_platform",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "mcp_call_error_burst",
+      "severity": "page",
+      "condition": "POST /api/v1/mcp/* 5xx ratio above 1% over 10 minutes",
+      "route_ref": "page_primary",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "mcp_upstream_config_drift",
+      "severity": "ticket",
+      "condition": "upstream_auth_invalid or upstream_auth_not_configured appears unexpectedly",
+      "route_ref": "ticket_platform",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "production_readonly_check_failed",
+      "severity": "page",
+      "condition": "production readonly verify fails 2 times in a row",
+      "route_ref": "page_primary",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    },
+    {
+      "id": "workflow_failure_spike",
+      "severity": "page",
+      "condition": "workflow failed ratio above 10% over 30 minutes",
+      "route_ref": "page_primary",
+      "runbook_path": "docs/incident_response_checklist_zh.md"
+    }
+  ],
+  "alert_routes": [
+    {
+      "id": "page_primary",
+      "severity": "page",
+      "destinations": [
+        "pagerduty://platform-primary",
+        "slack://incident-control-plane"
+      ],
+      "ack_sla_minutes": 10,
+      "escalate_after_minutes": 15,
+      "secondary_destination": "pagerduty://platform-secondary"
+    },
+    {
+      "id": "ticket_platform",
+      "severity": "ticket",
+      "destinations": [
+        "jira://platform-ops",
+        "slack://control-plane-alerts"
+      ],
+      "ack_sla_minutes": 240,
+      "escalate_after_minutes": 1440
+    },
+    {
+      "id": "info_observability",
+      "severity": "info",
+      "destinations": [
+        "slack://control-plane-observability"
+      ],
+      "ack_sla_minutes": 1440,
+      "escalate_after_minutes": 0
+    }
+  ],
+  "evidence_contract": {
+    "shared_required_fields": [
+      "service",
+      "environment",
+      "timestamp",
+      "base_url",
+      "tenant_id"
+    ],
+    "synthetic_summary_required_fields": [
+      "check_id",
+      "status_code",
+      "latency_ms",
+      "trace_id"
+    ],
+    "verify_summary_required_fields": [
+      "ok",
+      "mode",
+      "duration_ms",
+      "check_count"
+    ],
+    "incident_required_fields": [
+      "alert_rule_id",
+      "alert_route_id",
+      "trace_id",
+      "run_id",
+      "verify_output_path",
+      "deploy_version_id"
+    ]
+  }
+}

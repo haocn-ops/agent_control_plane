@@ -43,6 +43,8 @@
 - [ ] 如需人工 release gate，已手動觸發 `Manual Release Gate` workflow
 - [ ] 如需 GitHub Actions 直接部署 staging，已確認 `Deploy Staging` workflow 的 `base_url` / `tenant_id` 正確
 - [ ] 如需 GitHub Actions 跑 production 唯讀驗收，已確認 `Production Readonly Verify` workflow 的 `base_url` / `tenant_id` / `run_id` 正確
+- [ ] 如需 GitHub Actions 直接部署 production，已確認 `Deploy Production` workflow 的 `change_ref` / `base_url` / `tenant_id` / `run_id` / `apply_migrations`
+- [ ] 已確認 repository variables 中的 `CLOUDFLARE_ACCOUNT_ID`、`ACP_*` runtime check 參數正確
 - [ ] 若要對 staging / verify tenant 做遠端寫入式驗收，已選對 `verification_mode=write`
 - [ ] 如有遠端驗收，已下載或記錄 workflow artifact 中的 logs / summary
 - [ ] 如需交接，已保留遠端驗收輸出的 JSON summary，或明確記錄 `VERIFY_OUTPUT_PATH`
@@ -51,7 +53,10 @@
 - [ ] 若走 `Deploy Staging`，已確認 repository secrets 中存在 `CLOUDFLARE_API_TOKEN` 與 `CLOUDFLARE_ACCOUNT_ID`
 - [ ] 如有使用 `Deploy Staging`，已確認 artifact 內有 `staging-deploy-manifest.json`
 - [ ] 如有使用 `Production Readonly Verify`，已確認 artifact 內有 `production-readonly-manifest.json`
-- [ ] 已確認 production deploy 本身仍是受控手動流程，不會被 GitHub Actions 自動推進
+- [ ] 如有使用 `Deploy Production`，已確認 GitHub `production` environment protection 已啟用
+- [ ] 如有使用 `Deploy Production`，已確認 artifact 內有 `production-deploy-manifest.json`
+- [ ] 如有使用 `Synthetic Runtime Checks`，已確認 artifact 內有 `health-summary.json` 或 `production-readonly-summary.json`
+- [ ] 已確認 production deploy 雖可由 workflow 執行，但仍需受控人審與變更窗口
 
 ### 2.4 資源與資料
 
@@ -99,11 +104,17 @@ wrangler deploy --env staging
 wrangler deploy
 ```
 
+或手動觸發：
+
+- `Deploy Production` workflow
+
 完成後確認：
 
 - [ ] deploy 成功
 - [ ] 綁定資源與 production 預期一致
 - [ ] 沒有把 staging resource 名稱帶進 production
+- [ ] 如需套 migration，已確認 `apply_migrations` 與 `d1_database` 指向正確 production DB
+- [ ] 若使用 `Deploy Production`，已確認 `production-deploy-summary.md` / `production-deploy-manifest.json`
 - [ ] 如需 deploy 後再做安全回歸，已準備 `Production Readonly Verify` workflow 或等價唯讀命令
 
 ## 4. 發版後驗收
@@ -149,6 +160,7 @@ npm run post-deploy:verify:readonly
 - [ ] graph / events / artifacts 可查
 - [ ] 若存在 artifact，正文可讀
 - [ ] 若走 workflow，已保存 `production-readonly-summary.md` / `production-readonly-manifest.json`
+- [ ] 若走 `Deploy Production` workflow，已保存 `production-deploy-summary.md` / `production-deploy-manifest.json`
 
 ## 5. 若驗收失敗先看哪裡
 

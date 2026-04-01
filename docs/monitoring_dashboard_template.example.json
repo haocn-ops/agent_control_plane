@@ -2,6 +2,15 @@
   "title": "Agent Control Plane - Operations Dashboard",
   "description": "Monitoring-system-agnostic dashboard template for staging or production. Wire these panels to logs, synthetic checks, or metrics in your platform of choice.",
   "recommended_refresh_interval_seconds": 60,
+  "integration_contract": {
+    "manifest_path": "docs/observability_integration_manifest.example.json",
+    "required_runtime_inputs": [
+      "BASE_URL",
+      "TENANT_ID",
+      "OBS_SYNTH_SUBJECT",
+      "OBS_SYNTH_ROLES"
+    ]
+  },
   "sections": [
     {
       "name": "Golden Signals",
@@ -12,7 +21,9 @@
           "source": "synthetic_check",
           "query": "GET /api/v1/health success rate",
           "goal": "99.9% over 1h",
-          "alert_threshold": "below 99.5% over 5m"
+          "alert_threshold": "below 99.5% over 5m",
+          "synthetic_check_ref": "health_global",
+          "alert_rule_ref": "health_5xx_burst"
         },
         {
           "name": "Run create success rate",
@@ -20,7 +31,8 @@
           "source": "api_logs",
           "query": "POST /api/v1/runs 2xx rate",
           "goal": "99% over 1h",
-          "alert_threshold": "5xx above 1% over 10m"
+          "alert_threshold": "5xx above 1% over 10m",
+          "alert_rule_ref": "run_create_error_burst"
         },
         {
           "name": "Run completion rate",
@@ -28,7 +40,8 @@
           "source": "d1",
           "query": "completed runs / all terminal runs",
           "goal": "stable upward trend",
-          "alert_threshold": "failed ratio above 10% over 30m"
+          "alert_threshold": "failed ratio above 10% over 30m",
+          "alert_rule_ref": "workflow_failure_spike"
         },
         {
           "name": "Request latency p95",
@@ -36,7 +49,8 @@
           "source": "api_logs",
           "query": "p95 latency for northbound requests",
           "goal": "baseline under SLO",
-          "alert_threshold": "sustained regression above baseline"
+          "alert_threshold": "sustained regression above baseline",
+          "owner": "platform-oncall"
         }
       ]
     },
@@ -55,14 +69,16 @@
           "type": "timeseries",
           "source": "audit_events",
           "query": "approval_expired / approval_created",
-          "alert_threshold": "above 10% over 1h"
+          "alert_threshold": "above 10% over 1h",
+          "alert_rule_ref": "approval_timeout_ratio_high"
         },
         {
           "name": "Workflow failures",
           "type": "timeseries",
           "source": "d1",
           "query": "failed runs / terminal runs",
-          "alert_threshold": "above 10% over 30m"
+          "alert_threshold": "above 10% over 30m",
+          "alert_rule_ref": "workflow_failure_spike"
         }
       ]
     },
@@ -81,14 +97,34 @@
           "type": "timeseries",
           "source": "api_logs",
           "query": "POST /api/v1/mcp/* 5xx rate",
-          "alert_threshold": "above 1% over 10m"
+          "alert_threshold": "above 1% over 10m",
+          "alert_rule_ref": "mcp_call_error_burst"
         },
         {
           "name": "Upstream auth errors",
           "type": "timeseries",
           "source": "api_logs",
           "query": "upstream_auth_invalid + upstream_auth_not_configured",
-          "alert_threshold": "any unexpected non-zero occurrence"
+          "alert_threshold": "any unexpected non-zero occurrence",
+          "alert_rule_ref": "mcp_upstream_config_drift"
+        },
+        {
+          "name": "A2A stream synthetic",
+          "type": "status_history",
+          "source": "synthetic_check",
+          "query": "GET /api/v1/a2a/message:stream probe result",
+          "alert_threshold": "401 or 5xx twice in a row",
+          "synthetic_check_ref": "a2a_stream_auth",
+          "alert_rule_ref": "a2a_stream_auth_regression"
+        },
+        {
+          "name": "MCP ready synthetic",
+          "type": "status_history",
+          "source": "synthetic_check",
+          "query": "GET /api/v1/mcp/{provider} ready probe result",
+          "alert_threshold": "3 consecutive failures for any active provider",
+          "synthetic_check_ref": "mcp_provider_ready",
+          "alert_rule_ref": "mcp_provider_not_ready"
         }
       ]
     },
@@ -117,6 +153,28 @@
           "alert_threshold": "sharp unexplained increase"
         }
       ]
+    },
+    {
+      "name": "Deployment And Verify",
+      "panels": [
+        {
+          "name": "Production readonly verify",
+          "type": "status_history",
+          "source": "verify_summary",
+          "query": "latest readonly verify summaries",
+          "alert_threshold": "2 consecutive failures",
+          "synthetic_check_ref": "production_readonly_verify",
+          "alert_rule_ref": "production_readonly_check_failed"
+        },
+        {
+          "name": "Latest verify duration",
+          "type": "timeseries",
+          "source": "verify_summary",
+          "query": "duration_ms from readonly and write verify summaries",
+          "goal": "stable trend without sustained regression",
+          "owner": "platform-release"
+        }
+      ]
     }
   ],
   "annotations": [
@@ -128,6 +186,10 @@
     {
       "label": "Observability baseline",
       "path": "docs/observability_alerting_baseline_zh.md"
+    },
+    {
+      "label": "Observability integration manifest",
+      "path": "docs/observability_integration_manifest.example.json"
     },
     {
       "label": "Ops handoff summary",

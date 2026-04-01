@@ -1,0 +1,147 @@
+name: Synthetic Runtime Checks
+
+run-name: synthetic-runtime-checks:${{ github.event_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_production_readonly_verify:
+        description: "Run production readonly verify in addition to health probes"
+        required: true
+        default: true
+        type: boolean
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: synthetic-runtime-checks
+  cancel-in-progress: false
+
+jobs:
+  health-probes:
+    name: health-probes
+    runs-on: ubuntu-latest
+    env:
+      STAGING_BASE_URL: ${{ vars.ACP_STAGING_BASE_URL }}
+      PRODUCTION_BASE_URL: ${{ vars.ACP_PRODUCTION_BASE_URL }}
+    steps:
+      - name: Run health probes
+        run: |
+          set -euo pipefail
+          mkdir -p synthetic-runtime-checks
+          node <<'EOF'
+          const fs = require("node:fs");
+
+          const targets = [
+            { name: "staging", baseUrl: process.env.STAGING_BASE_URL || "" },
+            { name: "production", baseUrl: process.env.PRODUCTION_BASE_URL || "" },
+          ].filter((target) => target.baseUrl);
+
+          if (targets.length === 0) {
+            throw new Error("No runtime check targets configured. Set ACP_STAGING_BASE_URL and/or ACP_PRODUCTION_BASE_URL repository variables.");
+          }
+
+          async function probe(target) {
+            const startedAt = new Date().toISOString();
+            const start = Date.now();
+            const response = await fetch(`${target.baseUrl}/api/v1/health`, {
+              method: "GET",
+              headers: {
+                "user-agent": "agent-control-plane-synthetic-runtime-checks",
+              },
+            });
+
+            let json = null;
+            try {
+              json = await response.json();
+            } catch {
+              json = null;
+            }
+
+            return {
+              target: target.name,
+              base_url: target.baseUrl,
+              started_at: startedAt,
+              completed_at: new Date().toISOString(),
+              duration_ms: Date.now() - start,
+              status_code: response.status,
+              ok: response.ok && json?.ok === true,
+              response_json: json,
+            };
+          }
+
+          (async () => {
+            const results = [];
+            for (const target of targets) {
+              results.push(await probe(target));
+            }
+            fs.writeFileSync(
+              "synthetic-runtime-checks/health-summary.json",
+              `${JSON.stringify({ ok: results.every((result) => result.ok), checks: results }, null, 2)}\n`,
+            );
+
+            if (results.some((result) => !result.ok)) {
+              process.exitCode = 1;
+            }
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          EOF
+
+      - name: Upload health artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-runtime-health-${{ github.run_id }}
+          path: synthetic-runtime-checks/health-summary.json
+          if-no-files-found: error
+
+  production-readonly-verify:
+    name: production-readonly-verify
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event.inputs.run_production_readonly_verify == 'true' }}
+    environment: production
+    env:
+      BASE_URL: ${{ vars.ACP_PRODUCTION_BASE_URL }}
+      TENANT_ID: ${{ vars.ACP_PRODUCTION_TENANT_ID }}
+      RUN_ID: ${{ vars.ACP_PRODUCTION_RUN_ID }}
+    steps:
+      - name: Validate readonly inputs
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ] || [ -z "${TENANT_ID}" ] || [ -z "${RUN_ID}" ]; then
+            echo "ACP_PRODUCTION_BASE_URL, ACP_PRODUCTION_TENANT_ID, and ACP_PRODUCTION_RUN_ID must be set as repository variables." >&2
+            exit 1
+          fi
+          mkdir -p synthetic-runtime-checks
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run production readonly verify
+        env:
+          VERIFY_OUTPUT_PATH: synthetic-runtime-checks/production-readonly-summary.json
+        run: |
+          set -euo pipefail
+          npm run post-deploy:verify:readonly 2>&1 | tee synthetic-runtime-checks/production-readonly.log
+
+      - name: Upload production readonly artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-runtime-production-${{ github.run_id }}
+          path: synthetic-runtime-checks/
+          if-no-files-found: error

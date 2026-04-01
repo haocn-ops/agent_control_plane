@@ -12,6 +12,10 @@
     "legal_approver"
   ],
   "service_token_audience": "release-gate",
-  "verify_output_path": "/tmp/access-ingress-verify.json",
+  "write_verify_output_path": "/tmp/access-ingress-verify.json",
+  "readonly_verify_output_path": "/tmp/access-ingress-readonly-verify.json",
+  "handoff_owner": "platform-oncall@example.com",
+  "change_reference": "CHG-2026-0401-STAGING",
+  "readonly_run_id_source": "Capture the run_id from the latest controlled write verify before readonly verification.",
   "notes": "Use a dedicated staging Access application and verify in trusted_edge mode before production rollout."
 }

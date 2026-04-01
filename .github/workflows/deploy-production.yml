@@ -1,0 +1,226 @@
+name: Deploy Production
+
+run-name: deploy-production:${{ github.event.inputs.change_ref }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      change_ref:
+        description: "Change ticket, release reference, or approval ID for this production rollout"
+        required: true
+        default: ""
+        type: string
+      base_url:
+        description: "Production worker base URL, for example https://agent-control-plane.<subdomain>.workers.dev"
+        required: true
+        default: ""
+        type: string
+      tenant_id:
+        description: "Tenant ID used for readonly verification"
+        required: true
+        default: tenant_prod
+        type: string
+      run_id:
+        description: "Existing production run ID used for readonly verification"
+        required: true
+        default: ""
+        type: string
+      apply_migrations:
+        description: "yes = apply pending production D1 migrations before deploy; no = skip migration step"
+        required: true
+        default: "no"
+        type: choice
+        options:
+          - "no"
+          - "yes"
+      d1_database:
+        description: "Wrangler D1 binding or production database name used when apply_migrations=yes"
+        required: true
+        default: DB
+        type: string
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-production:
+    name: deploy-production
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BASE_URL: ${{ github.event.inputs.base_url }}
+      TENANT_ID: ${{ github.event.inputs.tenant_id }}
+      RUN_ID: ${{ github.event.inputs.run_id }}
+      CHANGE_REF: ${{ github.event.inputs.change_ref }}
+      APPLY_MIGRATIONS: ${{ github.event.inputs.apply_migrations }}
+      D1_DATABASE: ${{ github.event.inputs.d1_database }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Validate workflow inputs
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ]; then
+            echo "base_url is required" >&2
+            exit 1
+          fi
+          if [ -z "${RUN_ID}" ]; then
+            echo "run_id is required" >&2
+            exit 1
+          fi
+          mkdir -p production-deploy
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run local verification
+        id: verify_local
+        run: |
+          set -euo pipefail
+          npm run verify:local 2>&1 | tee production-deploy/verify-local.log
+
+      - name: Run production build verification
+        id: verify_build
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --dry-run --env="" 2>&1 | tee production-deploy/verify-build-production.log
+
+      - name: Apply production D1 migrations
+        id: apply_migrations
+        if: ${{ github.event.inputs.apply_migrations == 'yes' }}
+        run: |
+          set -euo pipefail
+          npx wrangler d1 migrations apply "${D1_DATABASE}" --remote --env="" 2>&1 | tee production-deploy/apply-migrations.log
+
+      - name: Deploy production Worker
+        id: deploy_production
+        run: |
+          set -euo pipefail
+          npx wrangler deploy --env="" --message "deploy:${CHANGE_REF}" 2>&1 | tee production-deploy/deploy-production.log
+
+      - name: Capture deployed version
+        id: capture_version
+        if: ${{ steps.deploy_production.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          VERSION_ID="$(grep -Eo 'Current Version ID: .*' production-deploy/deploy-production.log | tail -n 1 | sed 's/^Current Version ID: //')"
+          echo "VERSION_ID=${VERSION_ID}" >> "$GITHUB_ENV"
+          echo "version_id=${VERSION_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Run production readonly verification
+        id: verify_readonly
+        env:
+          VERIFY_OUTPUT_PATH: production-deploy/verify-readonly-summary.json
+        run: |
+          set -euo pipefail
+          npm run post-deploy:verify:readonly 2>&1 | tee production-deploy/verify-readonly.log
+
+      - name: Build production deploy summary
+        if: always()
+        env:
+          VERIFY_LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
+          VERIFY_BUILD_OUTCOME: ${{ steps.verify_build.outcome }}
+          APPLY_MIGRATIONS_OUTCOME: ${{ steps.apply_migrations.outcome }}
+          DEPLOY_PRODUCTION_OUTCOME: ${{ steps.deploy_production.outcome }}
+          VERIFY_READONLY_OUTCOME: ${{ steps.verify_readonly.outcome }}
+          VERSION_ID: ${{ steps.capture_version.outputs.version_id }}
+        run: |
+          mkdir -p production-deploy
+          cat > production-deploy/production-deploy-summary.md <<EOF
+          # Production deploy
+
+          - Change ref: ${CHANGE_REF}
+          - Base URL: ${BASE_URL}
+          - Tenant ID: ${TENANT_ID}
+          - Run ID: ${RUN_ID}
+          - Apply migrations: ${APPLY_MIGRATIONS}
+          - D1 database: ${D1_DATABASE}
+          - Local verification: ${VERIFY_LOCAL_OUTCOME}
+          - Production build verification: ${VERIFY_BUILD_OUTCOME}
+          - Apply migrations: ${APPLY_MIGRATIONS_OUTCOME:-skipped}
+          - Deploy production: ${DEPLOY_PRODUCTION_OUTCOME}
+          - Readonly verification: ${VERIFY_READONLY_OUTCOME}
+          - Version ID: ${VERSION_ID:-<none>}
+          EOF
+
+          if [ -f production-deploy/verify-readonly-summary.json ]; then
+            node -e '
+              const fs = require("node:fs");
+              const summary = JSON.parse(fs.readFileSync("production-deploy/verify-readonly-summary.json", "utf8"));
+              const lines = [
+                `- Readonly summary path: ${summary.verification_output_path ?? "production-deploy/verify-readonly-summary.json"}`,
+                `- Readonly started at: ${summary.started_at ?? "<none>"}`,
+                `- Readonly completed at: ${summary.completed_at ?? "<none>"}`,
+                `- Readonly duration ms: ${summary.duration_ms ?? "<none>"}`,
+                `- Readonly check count: ${summary.check_count ?? "<none>"}`,
+                `- Readonly trace ID: ${summary.trace_id ?? "<none>"}`,
+                `- Readonly run status: ${summary.run_status ?? "<none>"}`,
+                `- Readonly artifact count: ${summary.artifact_count ?? "<none>"}`,
+                `- Readonly artifact body checked: ${summary.artifact_body_checked ?? "<none>"}`
+              ];
+              fs.appendFileSync("production-deploy/production-deploy-summary.md", `${lines.join("\n")}\n`);
+            '
+          fi
+
+          node -e '
+            const fs = require("node:fs");
+            const manifest = {
+              type: "production_deploy",
+              inputs: {
+                change_ref: process.env.CHANGE_REF || "",
+                base_url: process.env.BASE_URL || "",
+                tenant_id: process.env.TENANT_ID || "",
+                run_id: process.env.RUN_ID || "",
+                apply_migrations: process.env.APPLY_MIGRATIONS || "no",
+                d1_database: process.env.D1_DATABASE || "DB"
+              },
+              outcomes: {
+                verify_local: process.env.VERIFY_LOCAL_OUTCOME || "skipped",
+                verify_build: process.env.VERIFY_BUILD_OUTCOME || "skipped",
+                apply_migrations: process.env.APPLY_MIGRATIONS_OUTCOME || "skipped",
+                deploy_production: process.env.DEPLOY_PRODUCTION_OUTCOME || "skipped",
+                verify_readonly: process.env.VERIFY_READONLY_OUTCOME || "skipped"
+              },
+              version_id: process.env.VERSION_ID || "",
+              artifacts: {
+                verify_local_log: "production-deploy/verify-local.log",
+                verify_build_log: "production-deploy/verify-build-production.log",
+                apply_migrations_log: "production-deploy/apply-migrations.log",
+                deploy_production_log: "production-deploy/deploy-production.log",
+                verify_readonly_log: "production-deploy/verify-readonly.log",
+                verify_readonly_summary: "production-deploy/verify-readonly-summary.json",
+                summary_md: "production-deploy/production-deploy-summary.md"
+              },
+              generated_at: new Date().toISOString()
+            };
+            fs.writeFileSync("production-deploy/production-deploy-manifest.json", `${JSON.stringify(manifest, null, 2)}\n`);
+          '
+
+          cat >> production-deploy/production-deploy-summary.md <<'EOF'
+
+          Manifest:
+          - production-deploy/production-deploy-manifest.json
+          EOF
+
+          cat production-deploy/production-deploy-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload production deploy artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-deploy-${{ github.run_id }}
+          path: production-deploy/
+          if-no-files-found: error

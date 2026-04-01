@@ -225,12 +225,20 @@ npm run post-deploy:verify
 - `Production Readonly Verify`
   - 檔案: [.github/workflows/production-readonly-verify.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/production-readonly-verify.yml)
   - 用途: 對既有 production 部署跑 readonly 驗收，不做 deploy
+- `Deploy Production`
+  - 檔案: [.github/workflows/deploy-production.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/deploy-production.yml)
+  - 用途: 在受控 gate 下做 production preflight、可選 migration、deploy 與 readonly 驗收
+- `Synthetic Runtime Checks`
+  - 檔案: [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml)
+  - 用途: 定時跑 health probe 與 production readonly verify，留下 incident artifact
 
 其中：
 
 - `CI` 只做 baseline 驗證
 - `Deploy Staging` 會真的呼叫 `wrangler deploy --env staging`
 - `Manual Release Gate` 和 `Production Readonly Verify` 都不會做 deploy
+- `Deploy Production` 會真的呼叫 `wrangler deploy --env=""`，並假定 GitHub `production` environment 已設人審或保護規則
+- `Synthetic Runtime Checks` 不 deploy，只做定時 health / readonly 驗證
 
 ### 4.7 GitHub Actions 手動 release gate
 
@@ -280,7 +288,8 @@ npm run post-deploy:verify
 需要先在 GitHub repository secrets 補齊：
 
 - `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
+
+其中 `CLOUDFLARE_ACCOUNT_ID` 也可改由 repository variable `CLOUDFLARE_ACCOUNT_ID` 提供，減少重複保管一份非敏感值。
 
 workflow 輸入：
 
@@ -343,6 +352,88 @@ artifact 內會包含：
 - production 變更窗口後的 readonly 驗收
 - 交接時的二次確認
 - Access / secret / provider 變更後的安全回歸檢查
+
+### 4.10 GitHub Actions production deploy
+
+如果你要把 production deploy 也包進 GitHub Actions，可以手動觸發：
+
+- Workflow: `Deploy Production`
+- 檔案: [.github/workflows/deploy-production.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/deploy-production.yml)
+
+建議先在 GitHub repository / environment 補齊：
+
+- repository secrets
+  - `CLOUDFLARE_API_TOKEN`
+- repository variables
+  - `CLOUDFLARE_ACCOUNT_ID`
+- GitHub `production` environment protection
+  - approver
+  - deploy window
+  - 必要時的 branch restriction
+
+workflow 輸入：
+
+- `change_ref`
+- `base_url`
+- `tenant_id`
+- `run_id`
+- `apply_migrations`
+- `d1_database`
+
+這個 workflow 會依序做：
+
+- `npm ci`
+- `npm run verify:local`
+- `npx wrangler deploy --dry-run --env=""`
+- 若 `apply_migrations=yes`，執行 `npx wrangler d1 migrations apply <database> --remote --env=""`
+- `npx wrangler deploy --env="" --message "deploy:<change_ref>"`
+- `npm run post-deploy:verify:readonly`
+
+artifact 內會包含：
+
+- `verify-local.log`
+- `verify-build-production.log`
+- `apply-migrations.log`
+- `deploy-production.log`
+- `verify-readonly.log`
+- `verify-readonly-summary.json`
+- `production-deploy-manifest.json`
+- `production-deploy-summary.md`
+
+要注意：
+
+- 這個 workflow 預期驗證用的是既有 production `RUN_ID`，所以 `run_id` 不能留空
+- `apply_migrations=yes` 時，請先確認 migration 已在變更窗口內被批准
+- workflow 自身不會替你決定是否允許 deploy；真正的人審應交給 GitHub `production` environment 或變更流程
+- 若 production 有 dashboard 端手工 vars，請依實際情況評估是否需要 `--keep-vars`
+
+### 4.11 GitHub Actions synthetic runtime checks
+
+如果你要把 health probe 與 production readonly verify 接到一條可定時執行的 workflow，可以使用：
+
+- Workflow: `Synthetic Runtime Checks`
+- 檔案: [.github/workflows/synthetic-runtime-checks.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/synthetic-runtime-checks.yml)
+
+這條 workflow 依賴 repository variables：
+
+- `ACP_STAGING_BASE_URL`
+- `ACP_PRODUCTION_BASE_URL`
+- `ACP_PRODUCTION_TENANT_ID`
+- `ACP_PRODUCTION_RUN_ID`
+
+若只設 base URL，它仍可執行 health probes；若再補齊 production tenant / run ID，就能在排程中一併跑 readonly verify。
+
+artifact 內會包含：
+
+- `health-summary.json`
+- `production-readonly.log`
+- `production-readonly-summary.json`
+
+適合用在：
+
+- 值班前先確認 staging / production 健康狀態
+- 定時保留 production readonly verify 證據
+- incident 後快速回看最近一次 synthetic / readonly 結果
 
 ## 5. Migration 與資料初始化
 

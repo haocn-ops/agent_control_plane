@@ -154,7 +154,7 @@ npm run post-deploy:verify:readonly
 
 ### 8.3 生成可交接的 ingress plan
 
-如果你要把這份治理資訊交給下一位操作者，建議先用模板產出一份機器可讀計劃：
+如果你要把這份治理資訊交給下一位操作者，建議先用模板產出一份機器可讀交接包：
 
 ```bash
 npm run access:ingress:plan -- \
@@ -178,6 +178,31 @@ npm run access:ingress:plan -- \
 
 - `access-ingress-plan.json`
 - `access-ingress-checklist.md`
+- `access-ingress-verify.sh`
+- `access-ingress-evidence-template.json`
+- `access-ingress-handoff-manifest.json`
+
+其中最適合直接交接執行的是：
+
+- `access-ingress-verify.sh`
+  - 封裝了 write / readonly 驗證入口，減少手抄環境變數
+- `access-ingress-evidence-template.json`
+  - 保留 `trace_id`、`run_id`、`duration_ms`、`check_count` 等欄位骨架
+- `access-ingress-handoff-manifest.json`
+  - 把 trusted headers、Access app、service token、verify 路徑與必要證據欄位收斂成單一清單
+
+直接執行 helper 的方式：
+
+```bash
+bash /tmp/access-ingress-plan/access-ingress-verify.sh write
+RUN_ID="<existing_run_id>" bash /tmp/access-ingress-plan/access-ingress-verify.sh readonly
+```
+
+建議交接順序：
+
+1. 先看 `access-ingress-handoff-manifest.json`，確認入口治理約定與 verify summary 路徑
+2. 再跑 `access-ingress-verify.sh`
+3. 最後把結果補進 `access-ingress-evidence-template.json`
 
 ## 9. 常見故障
 
@@ -212,6 +237,8 @@ npm run access:ingress:plan -- \
 - 對應環境：`staging` / `production`
 - 使用中的 service token 名稱或用途
 - verify summary 路徑
+- `access-ingress-handoff-manifest.json`
+- `access-ingress-evidence-template.json`
 - 最近一次成功 verify 的 `trace_id`
 - 最近一次成功 verify 的 `run_id`
 

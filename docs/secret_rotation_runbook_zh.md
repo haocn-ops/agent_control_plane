@@ -50,16 +50,40 @@ npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json 
 
 - `rotation-plan.json`
 - `rotation-checklist.md`
+- `rotation-manifest.json`
+- `evidence/preview.json`
+- `evidence/cutover.json`
+- `evidence/rollback.json`
 - `rotate.sh`
+
+建議在 maintenance window 前先跑一次：
+
+```bash
+.secret-rotation/<tenant_id>/rotate.sh preview
+```
+
+到真正切換時，再切到：
+
+```bash
+.secret-rotation/<tenant_id>/rotate.sh cutover
+```
+
+如果需要回滾，則使用：
+
+```bash
+.secret-rotation/<tenant_id>/rotate.sh rollback
+```
 
 至少要確認：
 
 - tenant
 - deploy env
+- change ref
 - 受影響的 provider
 - 舊 binding
 - 新 binding
 - cutover 驗證命令
+- rollback 驗證命令
 
 ### 4.2 建立新 secret
 
@@ -92,6 +116,11 @@ VERIFY_OUTPUT_PATH="/tmp/secret-rotation-verify.json" \
 npm run post-deploy:verify
 ```
 
+如果 bundle plan 已填好 `VERIFY_OUTPUT_PATH`，請把遠端驗收結果路徑同步記錄到：
+
+- `evidence/cutover.json`
+- 必要時 `evidence/rollback.json`
+
 如果是 production readonly，只要拿既有 `RUN_ID`：
 
 ```bash
@@ -102,6 +131,15 @@ VERIFY_MODE=readonly \
 VERIFY_OUTPUT_PATH="/tmp/secret-rotation-readonly.json" \
 npm run post-deploy:verify:readonly
 ```
+
+建議同步更新：
+
+- `rotation-manifest.json`
+  - 確認預期的 verify output path 是否都存在
+- `evidence/preview.json`
+  - 記錄誰完成了預檢與簽核
+- `evidence/cutover.json`
+  - 記錄切換時間、操作者、verify output 路徑與結果摘要
 
 ### 4.5 刪除舊 secret
 
@@ -119,8 +157,9 @@ wrangler secret delete MCP_API_TOKEN --env staging
 
 1. 先把 `auth_ref` 切回舊 binding。
 2. 保留新 binding，方便重試與比對。
-3. 用 `post-deploy:verify` 再驗一次。
-4. 等確認穩定後，再決定是否刪除新 binding。
+3. 用 plan 中的 `rollback_verify_command` 再驗一次。
+4. 把回滾時間、操作者、verify output 與摘要寫進 `evidence/rollback.json`。
+5. 等確認穩定後，再決定是否刪除新 binding。
 
 ## 6. 常見錯誤
 
@@ -133,6 +172,7 @@ wrangler secret delete MCP_API_TOKEN --env staging
 
 ## 7. 交接時建議保存
 
+- `change_ref`
 - `tenant_id`
 - `deploy_env`
 - `tool_provider_id`
@@ -140,5 +180,8 @@ wrangler secret delete MCP_API_TOKEN --env staging
 - `next_auth_ref`
 - `secret_binding_name`
 - `rotation_window`
+- `rotation_manifest_path`
+- `preview_evidence_path`
 - `verify_output_path`
+- `rollback_verify_output_path`
 - `rollback_auth_ref`

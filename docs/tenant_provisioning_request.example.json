@@ -1,0 +1,84 @@
+{
+  "schema_version": "2026-04-01",
+  "request_type": "tenant_onboarding",
+  "status": "draft",
+  "tenant": {
+    "tenant_id": "tenant_acme",
+    "deploy_env": "staging",
+    "base_url": "https://agent-control-plane-staging.example.workers.dev"
+  },
+  "bundle": {
+    "created_at": "2026-04-01T00:00:00.000Z",
+    "output_dir": ".onboarding-bundles/tenant_acme",
+    "metadata_json": ".onboarding-bundles/tenant_acme/bundle.json",
+    "handoff_markdown": ".onboarding-bundles/tenant_acme/handoff.md",
+    "provisioning_request_json": ".onboarding-bundles/tenant_acme/provisioning-request.json",
+    "seed_sql": ".onboarding-bundles/tenant_acme/seed.sql",
+    "provision_script": ".onboarding-bundles/tenant_acme/provision.sh",
+    "status_script": ".onboarding-bundles/tenant_acme/status.sh",
+    "verify_script": ".onboarding-bundles/tenant_acme/verify.sh"
+  },
+  "external_handoff": {
+    "request_owner": "<fill-me>",
+    "requester_team": "<fill-me>",
+    "change_ticket": "<fill-me>",
+    "target_completion_date": "<fill-me>",
+    "approver": "<fill-me>",
+    "external_system_record": "<fill-me>"
+  },
+  "actions": [
+    {
+      "action_id": "seed_import",
+      "type": "d1_seed_import",
+      "required": true,
+      "command": "wrangler d1 execute agent-control-plane-staging --remote --file /abs/path/seed.sql --env staging",
+      "evidence_path": ".onboarding-bundles/tenant_acme/seed.sql"
+    },
+    {
+      "action_id": "provider_overrides",
+      "type": "tool_provider_override",
+      "required": true,
+      "items": [
+        {
+          "tool_provider_id": "tp_email",
+          "current_endpoint_url": "mock://email",
+          "desired_endpoint_url": "<fill-me>",
+          "current_auth_ref": null,
+          "desired_auth_ref": "<fill-me>",
+          "suggested_secret_binding_name": "<fill-me>",
+          "required_before_verification": true,
+          "status": "active"
+        }
+      ]
+    },
+    {
+      "action_id": "policy_review",
+      "type": "policy_review",
+      "required": true,
+      "items": [
+        {
+          "policy_id": "pol_mcp_email_external_approval_v1",
+          "decision": "approval_required",
+          "tool_provider_id": "tp_email",
+          "tool_name": "send_email",
+          "status": "active",
+          "review_required": true
+        }
+      ]
+    },
+    {
+      "action_id": "verification",
+      "type": "post_deploy_verify",
+      "required": true,
+      "mode": "write",
+      "command": "./verify.sh write",
+      "evidence_path": ".onboarding-bundles/tenant_acme/verify-write-summary.json"
+    }
+  ],
+  "completion_criteria": [
+    "provider endpoint_url and auth_ref are updated from mock defaults",
+    "required secrets are provisioned in the target Worker environment",
+    "policy review is recorded in the external system",
+    "verify summary JSON is attached to the handoff evidence"
+  ]
+}

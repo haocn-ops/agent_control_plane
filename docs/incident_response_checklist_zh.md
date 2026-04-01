@@ -20,6 +20,7 @@
 
 - 對照 `README.md` 的 current status 與 known gaps
 - 打開 [docs/observability_alerting_baseline_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_alerting_baseline_zh.md)
+- 打開 [docs/observability_integration_manifest.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_integration_manifest.example.json)
 - 打開 [docs/ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md)
 - 打開 [docs/final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md)
 - 看是 `401` / `403` / `429` / `5xx` 哪一類
@@ -39,6 +40,9 @@
 
 ## 5. 必記欄位
 
+- `alert_rule_id`
+- `alert_route_id`
+- `check_id`
 - `tenant_id`
 - `trace_id`
 - `run_id`
@@ -48,14 +52,29 @@
 - `verify_output_path`
 - `deploy version id`
 
-## 6. 事故後收尾
+## 6. 路由與升級
+
+- `page`
+  - 10 分鐘內要有 ack，15 分鐘內沒有 owner 就升級 secondary
+- `ticket`
+  - 當班先補證據與環境資訊，1 個工作日內要有人接手
+- `info`
+  - 只記錄趨勢與背景，不打斷當班
+
+如果告警是 synthetic check 觸發：
+
+- 先在 manifest 裡找到對應 `check_id`
+- 確認 header、tenant、environment 是否與預期一致
+- 保存 synthetic summary 或 verify summary，避免只截圖不留證據
+
+## 7. 事故後收尾
 
 - 更新摘要到 ops handoff
 - 如果是配置問題，標記對應環境與修正項
 - 如果是流程問題，補到 observability 或 release checklist
 - 如果是重複問題，升級成 ticket 或 follow-up task
 
-## 7. 需要 page 的情況
+## 8. 需要 page 的情況
 
 - 5 分鐘內 health 持續失敗
 - production readonly verify 連續失敗

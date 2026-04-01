@@ -22,6 +22,7 @@
 
 - [monitoring_dashboard_template.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/monitoring_dashboard_template.example.json)
 - [incident_response_checklist_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/incident_response_checklist_zh.md)
+- [observability_integration_manifest.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_integration_manifest.example.json)
 
 ## 2. 值班原則
 
@@ -176,4 +177,19 @@
 
 1. 先把 [monitoring_dashboard_template.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/monitoring_dashboard_template.example.json) 對接到你的 dashboard 平台
 2. 再把 [incident_response_checklist_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/incident_response_checklist_zh.md) 接到 oncall wiki 或 incident template
-3. 最後把 synthetic check 的結果接到 `health` / `production readonly verify`
+3. 最後把 [observability_integration_manifest.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_integration_manifest.example.json) 對接到 synthetic check、告警路由與驗收證據輸出
+
+## 10. 接入骨架說明
+
+如果你要把這份基線真的接到監控平台，建議直接用 `observability_integration_manifest.example.json` 當作對接契約：
+
+- `synthetic_checks`
+  - 固定 `health`、`a2a_stream`、`mcp_ready`、`production_readonly_verify` 四類最小檢查
+- `alert_rules`
+  - 固定把告警條件命名成穩定的 `rule_id`，避免不同平台語義漂移
+- `alert_routes`
+  - 固定 page / ticket / info 三種路由與升級時限
+- `evidence_contract`
+  - 固定 synthetic check summary 與 verify summary 至少要輸出的欄位
+
+這樣即使後面接的是 Cloudflare、Grafana、Datadog 或自建告警系統，dashboard、alert rule、incident checklist 也能共用同一套 ID 與證據格式。
