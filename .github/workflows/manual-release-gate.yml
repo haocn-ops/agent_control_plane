@@ -1,0 +1,199 @@
+name: Manual Release Gate
+
+run-name: release-gate:${{ github.event.inputs.verification_mode }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      verification_mode:
+        description: "local = verify:local + verify:build; write = additionally run write-mode remote verification; readonly = additionally run readonly remote verification"
+        required: true
+        default: local
+        type: choice
+        options:
+          - local
+          - write
+          - readonly
+      base_url:
+        description: "Deployed worker base URL for remote verification"
+        required: false
+        default: ""
+        type: string
+      tenant_id:
+        description: "Tenant ID for remote verification"
+        required: false
+        default: tenant_prod
+        type: string
+      run_id:
+        description: "Existing run ID for readonly verification"
+        required: false
+        default: ""
+        type: string
+      expected_run_rate_limit:
+        description: "Optional expected RATE_LIMIT_RUNS_PER_MINUTE for write-mode remote verification"
+        required: false
+        default: ""
+        type: string
+      expected_replay_rate_limit:
+        description: "Optional expected RATE_LIMIT_REPLAYS_PER_MINUTE for write-mode remote verification"
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: manual-release-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    name: release-gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run local verification
+        id: verify_local
+        run: |
+          mkdir -p release-gate
+          set -euo pipefail
+          npm run verify:local 2>&1 | tee release-gate/verify-local.log
+
+      - name: Run build verification
+        id: verify_build
+        run: |
+          set -euo pipefail
+          npm run verify:build 2>&1 | tee release-gate/verify-build.log
+
+      - name: Run write-mode remote verification
+        id: verify_write
+        if: ${{ github.event.inputs.verification_mode == 'write' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          EXPECT_RATE_LIMIT_RUNS_PER_MINUTE: ${{ github.event.inputs.expected_run_rate_limit }}
+          EXPECT_RATE_LIMIT_REPLAYS_PER_MINUTE: ${{ github.event.inputs.expected_replay_rate_limit }}
+          VERIFY_OUTPUT_PATH: release-gate/verify-write-summary.json
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ]; then
+            echo "BASE_URL is required when verification_mode=write" >&2
+            exit 1
+          fi
+          mkdir -p release-gate
+          npm run post-deploy:verify 2>&1 | tee release-gate/verify-write.log
+
+      - name: Run readonly remote verification
+        id: verify_readonly
+        if: ${{ github.event.inputs.verification_mode == 'readonly' }}
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          VERIFY_OUTPUT_PATH: release-gate/verify-readonly-summary.json
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ]; then
+            echo "BASE_URL is required when verification_mode=readonly" >&2
+            exit 1
+          fi
+          mkdir -p release-gate
+          set -euo pipefail
+          npm run post-deploy:verify:readonly 2>&1 | tee release-gate/verify-readonly.log
+
+      - name: Build gate summary
+        if: always()
+        env:
+          MODE: ${{ github.event.inputs.verification_mode }}
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          EXPECTED_RUN_RATE_LIMIT: ${{ github.event.inputs.expected_run_rate_limit }}
+          EXPECTED_REPLAY_RATE_LIMIT: ${{ github.event.inputs.expected_replay_rate_limit }}
+          LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
+          BUILD_OUTCOME: ${{ steps.verify_build.outcome }}
+          WRITE_OUTCOME: ${{ steps.verify_write.outcome }}
+          READONLY_OUTCOME: ${{ steps.verify_readonly.outcome }}
+        run: |
+          mkdir -p release-gate
+          cat > release-gate/release-gate-summary.md <<EOF
+          # Manual release gate
+
+          - Mode: ${MODE}
+          - Local verification: ${LOCAL_OUTCOME}
+          - Build verification: ${BUILD_OUTCOME}
+          EOF
+
+          if [ "${MODE}" = "write" ]; then
+            cat >> release-gate/release-gate-summary.md <<EOF
+          - Base URL: ${BASE_URL}
+          - Tenant ID: ${TENANT_ID}
+          - Write-mode remote verification: ${WRITE_OUTCOME:-skipped}
+          - Expected run rate limit: ${EXPECTED_RUN_RATE_LIMIT:-<none>}
+          - Expected replay rate limit: ${EXPECTED_REPLAY_RATE_LIMIT:-<none>}
+          EOF
+            if [ -f release-gate/verify-write-summary.json ]; then
+              node -e '
+                const fs = require("node:fs");
+                const summary = JSON.parse(fs.readFileSync("release-gate/verify-write-summary.json", "utf8"));
+                const lines = [
+                  `- Write trace ID: ${summary.trace_id ?? "<none>"}`,
+                  `- Write run ID: ${summary.run_id ?? "<none>"}`,
+                  `- Write policy ID: ${summary.policy_id ?? "<none>"}`,
+                  `- Write tool provider ID: ${summary.tool_provider_id ?? "<none>"}`,
+                  `- Create rate-limit verification: ${summary.runs_create_rate_limit ?? "<none>"}`,
+                  `- Replay rate-limit verification: ${summary.runs_replay_rate_limit ?? "<none>"}`
+                ];
+                fs.appendFileSync("release-gate/release-gate-summary.md", `${lines.join("\n")}\n`);
+              '
+            fi
+          fi
+
+          if [ "${MODE}" = "readonly" ]; then
+            cat >> release-gate/release-gate-summary.md <<EOF
+          - Base URL: ${BASE_URL}
+          - Tenant ID: ${TENANT_ID}
+          - Run ID: ${RUN_ID:-<none>}
+          - Readonly verification: ${READONLY_OUTCOME:-skipped}
+          EOF
+            if [ -f release-gate/verify-readonly-summary.json ]; then
+              node -e '
+                const fs = require("node:fs");
+                const summary = JSON.parse(fs.readFileSync("release-gate/verify-readonly-summary.json", "utf8"));
+                const lines = [
+                  `- Readonly trace ID: ${summary.trace_id ?? "<none>"}`,
+                  `- Readonly run status: ${summary.run_status ?? "<none>"}`,
+                  `- Readonly artifact count: ${summary.artifact_count ?? "<none>"}`,
+                  `- Readonly artifact body checked: ${summary.artifact_body_checked ?? "<none>"}`
+                ];
+                fs.appendFileSync("release-gate/release-gate-summary.md", `${lines.join("\n")}\n`);
+              '
+            fi
+          fi
+
+          cat >> release-gate/release-gate-summary.md <<'EOF'
+
+          This workflow does not deploy. It only wraps verification and uploads logs as an artifact.
+          EOF
+
+          cat release-gate/release-gate-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gate artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-release-gate-${{ github.run_id }}
+          path: release-gate/
+          if-no-files-found: error

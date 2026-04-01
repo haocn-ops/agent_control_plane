@@ -1,0 +1,25 @@
+{
+  "name": "agent-control-plane",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "post-deploy:verify": "node scripts/post_deploy_verify.mjs",
+    "post-deploy:verify:readonly": "VERIFY_MODE=readonly node scripts/post_deploy_verify.mjs",
+    "seed:sql": "node scripts/render_seed_sql.mjs",
+    "tenant:onboarding:bundle": "node scripts/render_tenant_onboarding_bundle.mjs",
+    "smoke": "tsc -p tsconfig.smoke.json && node .smoke-dist/scripts/smoke.js",
+    "verify:build": "wrangler deploy --dry-run",
+    "verify:local": "npm run check && npm run smoke",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260331.1",
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "wrangler": "^4.79.0"
+  }
+}

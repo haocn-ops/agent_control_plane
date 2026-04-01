@@ -1,0 +1,81 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "agent-control-plane",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-31",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "persist": true
+    }
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-control-plane",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ARTIFACTS_BUCKET",
+      "bucket_name": "agent-control-plane-artifacts"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RUN_COORDINATOR",
+        "class_name": "RunCoordinator"
+      },
+      {
+        "name": "APPROVAL_SESSION",
+        "class_name": "ApprovalSession"
+      },
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RunCoordinator", "ApprovalSession"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["RateLimiter"]
+    }
+  ],
+  "workflows": [
+    {
+      "binding": "RUN_WORKFLOW",
+      "name": "agent-control-plane-run-workflow",
+      "class_name": "RunWorkflow"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "EVENT_QUEUE",
+        "queue": "agent-control-plane-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "agent-control-plane-events",
+        "max_batch_size": 10,
+        "max_retries": 3
+      }
+    ]
+  }
+}

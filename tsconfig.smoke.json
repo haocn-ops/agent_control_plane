@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node", "@cloudflare/workers-types/latest"],
+    "outDir": ".smoke-dist",
+    "rootDir": "."
+  },
+  "include": ["worker-configuration.d.ts", "scripts/**/*.ts", "src/app.ts", "src/a2a/**/*.ts", "src/lib/**/*.ts", "src/mcp/**/*.ts", "src/types.ts"]
+}
