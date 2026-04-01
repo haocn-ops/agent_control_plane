@@ -3,7 +3,7 @@ import type { WorkflowEvent, WorkflowStep, WorkflowTimeoutDuration } from "cloud
 import { dispatchOutboundTask } from "../a2a/outbound.js";
 import { expireApproval } from "../lib/approvals.js";
 import { recordAuditEvent } from "../lib/audit.js";
-import { listActivePolicies } from "../lib/db.js";
+import { getApproval, listActivePolicies } from "../lib/db.js";
 import { createId, hashPayload, nowIso } from "../lib/ids.js";
 import type {
   A2AStatusSignal,
@@ -24,6 +24,7 @@ interface PolicyEvaluationResult {
   approverRoles: string[];
   timeoutSeconds: number;
   labels: string[];
+  approvalPayloadTemplate?: string | null;
 }
 
 const DEFAULT_APPROVER_ROLES = ["legal_approver"];
@@ -99,12 +100,18 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
     const replayStartPhase = getReplayStartPhase(replayContext);
     const outboundDispatch = extractOutboundDispatch(params.context);
 
-    const policyEvaluation =
+    const policyEvaluation: PolicyEvaluationResult =
       replayStartPhase === "approval_wait"
-        ? buildReplayApprovalEvaluation(outboundDispatch, params.policyContext.labels ?? [])
+        ? await loadReplayApprovalEvaluation({
+            env: this.env,
+            tenantId: params.tenantId,
+            replayContext,
+            outboundDispatch,
+            labels: params.policyContext.labels ?? [],
+          })
         : replayStartPhase === "a2a_dispatch"
           ? buildReplayAllowEvaluation(outboundDispatch, params.policyContext.labels ?? [])
-          : await step.do("evaluate-policy", async () => {
+          : await step.do<PolicyEvaluationResult>("evaluate-policy", async () => {
               const payload = await this.readInput(params.inputBlobKey);
               const input =
                 payload && typeof payload.input === "object" && payload.input ? payload.input : null;
@@ -652,6 +659,14 @@ async function buildWorkflowApprovalPayload(args: {
   outboundDispatch: OutboundA2ADispatchConfig | null;
   policyEvaluation: PolicyEvaluationResult;
 }): Promise<Record<string, unknown>> {
+  if (args.policyEvaluation.approvalPayloadTemplate) {
+    return mergeReplayApprovalPayloadTemplate(args.policyEvaluation.approvalPayloadTemplate, {
+      traceId: args.traceId,
+      runId: args.runId,
+      stepId: args.stepId,
+    });
+  }
+
   const inputPayload = await readApprovalInputPayload(args.env, args.inputBlobKey);
   const input =
     inputPayload?.input && typeof inputPayload.input === "object" && !Array.isArray(inputPayload.input)
@@ -689,6 +704,35 @@ async function buildWorkflowApprovalPayload(args: {
       trace_id: args.traceId,
       run_id: args.runId,
       step_id: args.stepId,
+    },
+  };
+}
+
+function mergeReplayApprovalPayloadTemplate(
+  template: string,
+  trace: { traceId: string; runId: string; stepId: string },
+): Record<string, unknown> {
+  const parsedTemplate = parseReplayApprovalPayloadTemplate(template);
+  const summary =
+    parsedTemplate?.summary &&
+    typeof parsedTemplate.summary === "object" &&
+    !Array.isArray(parsedTemplate.summary)
+      ? (parsedTemplate.summary as Record<string, unknown>)
+      : {};
+  const subjectSnapshot =
+    parsedTemplate?.subject_snapshot &&
+    typeof parsedTemplate.subject_snapshot === "object" &&
+    !Array.isArray(parsedTemplate.subject_snapshot)
+      ? (parsedTemplate.subject_snapshot as Record<string, unknown>)
+      : {};
+
+  return {
+    summary,
+    subject_snapshot: subjectSnapshot,
+    trace: {
+      trace_id: trace.traceId,
+      run_id: trace.runId,
+      step_id: trace.stepId,
     },
   };
 }
@@ -759,6 +803,71 @@ async function evaluateWorkflowPolicy(args: {
   });
 }
 
+async function loadReplayApprovalEvaluation(args: {
+  env: Env;
+  tenantId: string;
+  replayContext: Record<string, unknown> | undefined;
+  outboundDispatch: OutboundA2ADispatchConfig | null;
+  labels: string[];
+}): Promise<PolicyEvaluationResult> {
+  const restored = await restoreReplayApprovalEvaluation(args);
+  if (restored) {
+    return restored;
+  }
+
+  return buildReplayApprovalEvaluation(args.outboundDispatch, args.labels);
+}
+
+async function restoreReplayApprovalEvaluation(args: {
+  env: Env;
+  tenantId: string;
+  replayContext: Record<string, unknown> | undefined;
+  outboundDispatch: OutboundA2ADispatchConfig | null;
+  labels: string[];
+}): Promise<PolicyEvaluationResult | null> {
+  const sourceRunId =
+    args.replayContext && typeof args.replayContext.source_run_id === "string"
+      ? args.replayContext.source_run_id
+      : null;
+  const anchorStepId =
+    args.replayContext && typeof args.replayContext.anchor_step_id === "string"
+      ? args.replayContext.anchor_step_id
+      : null;
+
+  if (!sourceRunId || !anchorStepId) {
+    return null;
+  }
+
+  const sourceApprovalStep = await args.env.DB.prepare(
+    `SELECT metadata_json
+       FROM run_steps
+      WHERE tenant_id = ?1 AND run_id = ?2 AND step_id = ?3 AND step_type = 'approval_wait'`,
+  )
+    .bind(args.tenantId, sourceRunId, anchorStepId)
+    .first<{ metadata_json: string }>();
+  const sourceApprovalId = parseReplayApprovalId(sourceApprovalStep?.metadata_json ?? null);
+  if (!sourceApprovalId) {
+    return null;
+  }
+
+  const approval = await getApproval(args.env, args.tenantId, sourceApprovalId);
+  if (!approval) {
+    return null;
+  }
+
+  return {
+    channel: approval.subject_type === "a2a_dispatch" ? "a2a_dispatch" : "external_action",
+    subjectType: approval.subject_type === "a2a_dispatch" ? "a2a_dispatch" : "external_action",
+    subjectRef: approval.subject_ref,
+    decision: "approval_required",
+    policyId: approval.policy_id,
+    approverRoles: parseApprovalScopeRoles(approval.approver_scope_json),
+    timeoutSeconds: parseApprovalTimeoutSecondsFromRow(approval.created_at, approval.expires_at),
+    labels: args.labels,
+    approvalPayloadTemplate: await readReplayApprovalPayload(args.env, args.tenantId, sourceRunId, sourceApprovalId),
+  };
+}
+
 function buildReplayApprovalEvaluation(
   outboundDispatch: OutboundA2ADispatchConfig | null,
   labels: string[],
@@ -807,6 +916,7 @@ function buildHeuristicPolicyEvaluation(args: {
       approverRoles: DEFAULT_APPROVER_ROLES,
       timeoutSeconds: DEFAULT_APPROVAL_TIMEOUT_SECONDS,
       labels: args.labels,
+      approvalPayloadTemplate: null,
     };
   }
 
@@ -819,7 +929,82 @@ function buildHeuristicPolicyEvaluation(args: {
     approverRoles: DEFAULT_APPROVER_ROLES,
     timeoutSeconds: DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     labels: args.labels,
+    approvalPayloadTemplate: null,
   };
+}
+
+function parseReplayApprovalId(metadataJson: string | null): string | null {
+  if (!metadataJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(metadataJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return typeof (parsed as Record<string, unknown>).approval_id === "string"
+      ? ((parsed as Record<string, unknown>).approval_id as string)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseApprovalScopeRoles(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return DEFAULT_APPROVER_ROLES;
+    }
+    const approverRoles = (parsed as Record<string, unknown>).approver_roles;
+    if (!Array.isArray(approverRoles)) {
+      return DEFAULT_APPROVER_ROLES;
+    }
+    const roles = approverRoles.filter((value): value is string => typeof value === "string");
+    return roles.length > 0 ? roles : DEFAULT_APPROVER_ROLES;
+  } catch {
+    return DEFAULT_APPROVER_ROLES;
+  }
+}
+
+function parseApprovalTimeoutSecondsFromRow(createdAt: string, expiresAt: string | null): number {
+  if (!expiresAt) {
+    return DEFAULT_APPROVAL_TIMEOUT_SECONDS;
+  }
+  const createdAtMs = Date.parse(createdAt);
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(createdAtMs) || !Number.isFinite(expiresAtMs) || expiresAtMs <= createdAtMs) {
+    return DEFAULT_APPROVAL_TIMEOUT_SECONDS;
+  }
+  return Math.max(1, Math.round((expiresAtMs - createdAtMs) / 1000));
+}
+
+async function readReplayApprovalPayload(
+  env: Env,
+  tenantId: string,
+  sourceRunId: string,
+  approvalId: string,
+): Promise<string | null> {
+  const object = await env.ARTIFACTS_BUCKET.get(`tenants/${tenantId}/runs/${sourceRunId}/audit/${approvalId}.json`);
+  if (!object) {
+    return null;
+  }
+  const parsed = (await object.json()) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? JSON.stringify(parsed)
+    : null;
+}
+
+function parseReplayApprovalPayloadTemplate(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function parsePolicyApproverRoles(policy: PolicyRow): string[] {

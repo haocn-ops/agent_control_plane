@@ -40,6 +40,7 @@ interface SmokePolicyEvaluationResult {
   approverRoles: string[];
   timeoutSeconds: number;
   labels: string[];
+  approvalPayloadTemplate?: Record<string, unknown> | null;
 }
 
 const DEFAULT_APPROVER_ROLES = ["legal_approver"];
@@ -2937,13 +2938,13 @@ class MockWorkflowInstance {
       const plannerStepId = await this.createPlannerStep();
       const replayStartPhase = this.getReplayStartPhase();
       const outboundDispatch = extractOutboundDispatch(this.params.context);
-      const basePolicyEvaluation = await this.evaluatePolicy(outboundDispatch);
+      const basePolicyEvaluation =
+        replayStartPhase === "approval_wait"
+          ? await this.loadReplayApprovalEvaluation(outboundDispatch)
+          : await this.evaluatePolicy(outboundDispatch);
       const policyEvaluation =
         replayStartPhase === "approval_wait"
-          ? {
-              ...basePolicyEvaluation,
-              decision: "approval_required" as const,
-            }
+          ? basePolicyEvaluation
           : replayStartPhase === "a2a_dispatch"
             ? {
                 ...basePolicyEvaluation,
@@ -3396,6 +3397,86 @@ class MockWorkflowInstance {
     });
   }
 
+  private async loadReplayApprovalEvaluation(
+    outboundDispatch: OutboundA2ADispatchConfig | null,
+  ): Promise<SmokePolicyEvaluationResult> {
+    const restored = await this.restoreReplayApprovalEvaluation();
+    if (restored) {
+      return restored;
+    }
+
+    const baseEvaluation = await this.evaluatePolicy(outboundDispatch);
+    return {
+      ...baseEvaluation,
+      decision: "approval_required",
+    };
+  }
+
+  private async restoreReplayApprovalEvaluation(): Promise<SmokePolicyEvaluationResult | null> {
+    const replayContext =
+      this.params.context.replay &&
+      typeof this.params.context.replay === "object" &&
+      !Array.isArray(this.params.context.replay)
+        ? (this.params.context.replay as Record<string, unknown>)
+        : null;
+    const sourceRunId =
+      replayContext && typeof replayContext.source_run_id === "string" ? replayContext.source_run_id : null;
+    const anchorStepId =
+      replayContext && typeof replayContext.anchor_step_id === "string" ? replayContext.anchor_step_id : null;
+    if (!sourceRunId || !anchorStepId) {
+      return null;
+    }
+
+    const approvalStep = await this.deps.db
+      .prepare(
+        `SELECT metadata_json
+           FROM run_steps
+          WHERE tenant_id = ?1 AND run_id = ?2 AND step_id = ?3 AND step_type = 'approval_wait'`,
+      )
+      .bind(this.params.tenantId, sourceRunId, anchorStepId)
+      .first<{ metadata_json: string }>();
+    const approvalId = parseSmokeReplayApprovalId(approvalStep?.metadata_json ?? null);
+    if (!approvalId) {
+      return null;
+    }
+
+    const approval = await this.deps.db
+      .prepare(
+        `SELECT policy_id, subject_type, subject_ref, approver_scope_json, created_at, expires_at
+           FROM approvals
+          WHERE tenant_id = ?1 AND approval_id = ?2`,
+      )
+      .bind(this.params.tenantId, approvalId)
+      .first<{
+        policy_id: string;
+        subject_type: string;
+        subject_ref: string;
+        approver_scope_json: string;
+        created_at: string;
+        expires_at: string;
+      }>();
+    if (!approval) {
+      return null;
+    }
+
+    return {
+      channel: approval.subject_type === "a2a_dispatch" ? "a2a_dispatch" : "external_action",
+      subjectType: approval.subject_type === "a2a_dispatch" ? "a2a_dispatch" : "external_action",
+      subjectRef: approval.subject_ref,
+      decision: "approval_required",
+      policyId: approval.policy_id,
+      approverRoles: parseSmokeApprovalScopeRoles(approval.approver_scope_json),
+      timeoutSeconds: parseSmokeApprovalTimeoutSecondsFromRow(approval.created_at, approval.expires_at),
+      labels: this.params.policyContext.labels ?? [],
+      approvalPayloadTemplate: await readSmokeReplayApprovalPayload(
+        this.deps.bucket,
+        this.params.tenantId,
+        sourceRunId,
+        approvalId,
+      ),
+    };
+  }
+
   private async createApproval(
     plannerStepId: string,
     policyEvaluation: SmokePolicyEvaluationResult,
@@ -3693,6 +3774,14 @@ async function buildSmokeWorkflowApprovalPayload(args: {
   outboundDispatch: OutboundA2ADispatchConfig | null;
   policyEvaluation: SmokePolicyEvaluationResult;
 }): Promise<Record<string, unknown>> {
+  if (args.policyEvaluation.approvalPayloadTemplate) {
+    return mergeSmokeReplayApprovalPayloadTemplate(args.policyEvaluation.approvalPayloadTemplate, {
+      traceId: args.traceId,
+      runId: args.runId,
+      stepId: args.stepId,
+    });
+  }
+
   const inputPayload = await readSmokeApprovalInputPayload(args.bucket, args.inputBlobKey);
   const input =
     inputPayload?.input && typeof inputPayload.input === "object" && !Array.isArray(inputPayload.input)
@@ -3730,6 +3819,32 @@ async function buildSmokeWorkflowApprovalPayload(args: {
       trace_id: args.traceId,
       run_id: args.runId,
       step_id: args.stepId,
+    },
+  };
+}
+
+function mergeSmokeReplayApprovalPayloadTemplate(
+  template: Record<string, unknown>,
+  trace: { traceId: string; runId: string; stepId: string },
+): Record<string, unknown> {
+  const summary =
+    template.summary && typeof template.summary === "object" && !Array.isArray(template.summary)
+      ? (template.summary as Record<string, unknown>)
+      : {};
+  const subjectSnapshot =
+    template.subject_snapshot &&
+    typeof template.subject_snapshot === "object" &&
+    !Array.isArray(template.subject_snapshot)
+      ? (template.subject_snapshot as Record<string, unknown>)
+      : {};
+
+  return {
+    summary,
+    subject_snapshot: subjectSnapshot,
+    trace: {
+      trace_id: trace.traceId,
+      run_id: trace.runId,
+      step_id: trace.stepId,
     },
   };
 }
@@ -3795,6 +3910,66 @@ function buildSmokeHeuristicPolicyEvaluation(args: {
     timeoutSeconds: DEFAULT_APPROVAL_TIMEOUT_SECONDS,
     labels: args.labels,
   };
+}
+
+function parseSmokeReplayApprovalId(metadataJson: string | null): string | null {
+  if (!metadataJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(metadataJson) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return typeof (parsed as Record<string, unknown>).approval_id === "string"
+      ? ((parsed as Record<string, unknown>).approval_id as string)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseSmokeApprovalScopeRoles(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return DEFAULT_APPROVER_ROLES;
+    }
+    const approverRoles = (parsed as Record<string, unknown>).approver_roles;
+    if (!Array.isArray(approverRoles)) {
+      return DEFAULT_APPROVER_ROLES;
+    }
+    const roles = approverRoles.filter((value): value is string => typeof value === "string");
+    return roles.length > 0 ? roles : DEFAULT_APPROVER_ROLES;
+  } catch {
+    return DEFAULT_APPROVER_ROLES;
+  }
+}
+
+function parseSmokeApprovalTimeoutSecondsFromRow(createdAt: string, expiresAt: string): number {
+  const createdAtMs = Date.parse(createdAt);
+  const expiresAtMs = Date.parse(expiresAt);
+  if (!Number.isFinite(createdAtMs) || !Number.isFinite(expiresAtMs) || expiresAtMs <= createdAtMs) {
+    return DEFAULT_APPROVAL_TIMEOUT_SECONDS;
+  }
+  return Math.max(1, Math.round((expiresAtMs - createdAtMs) / 1000));
+}
+
+async function readSmokeReplayApprovalPayload(
+  bucket: MockR2Bucket,
+  tenantId: string,
+  sourceRunId: string,
+  approvalId: string,
+): Promise<Record<string, unknown> | null> {
+  const object = await bucket.get(`tenants/${tenantId}/runs/${sourceRunId}/audit/${approvalId}.json`);
+  if (!object) {
+    return null;
+  }
+  const parsed = (await object.json()) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
 }
 
 function parseSmokePolicyApproverRoles(policy: PolicyRow): string[] {
