@@ -5,3 +5,11 @@ node_modules/
 dist/
 coverage/
 *.log
+.access-ingress-plan*/
+.secret-rotation/
+.onboarding-bundles/
+release-gate/
+staging-deploy/
+production-deploy/
+production-readonly-verify/
+synthetic-runtime-checks/

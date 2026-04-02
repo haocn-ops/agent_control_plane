@@ -10,6 +10,11 @@ on:
         required: true
         default: true
         type: boolean
+      run_sse_probes:
+        description: "Run optional SSE probes (A2A stream + MCP ready) when synthetic identity variables are configured"
+        required: true
+        default: true
+        type: boolean
   schedule:
     - cron: "*/15 * * * *"
 
@@ -26,64 +31,363 @@ jobs:
     runs-on: ubuntu-latest
     env:
       STAGING_BASE_URL: ${{ vars.ACP_STAGING_BASE_URL }}
+      STAGING_TENANT_ID: ${{ vars.ACP_STAGING_TENANT_ID }}
       PRODUCTION_BASE_URL: ${{ vars.ACP_PRODUCTION_BASE_URL }}
+      PRODUCTION_TENANT_ID: ${{ vars.ACP_PRODUCTION_TENANT_ID }}
+      SYNTH_SUBJECT_ID: ${{ vars.ACP_SYNTH_SUBJECT_ID }}
+      SYNTH_SUBJECT_ROLES: ${{ vars.ACP_SYNTH_SUBJECT_ROLES }}
+      RUN_SSE_PROBES: ${{ github.event_name == 'schedule' && 'true' || github.event.inputs.run_sse_probes }}
     steps:
-      - name: Run health probes
+      - name: Run synthetic probes
         run: |
           set -euo pipefail
           mkdir -p synthetic-runtime-checks
           node <<'EOF'
           const fs = require("node:fs");
+          const { setTimeout: delay } = require("node:timers/promises");
+
+          const service = "agent-control-plane";
+          const runSseProbes = (process.env.RUN_SSE_PROBES || "false") === "true";
+          const synthSubjectId = (process.env.SYNTH_SUBJECT_ID || "").trim();
+          const synthSubjectRoles = (process.env.SYNTH_SUBJECT_ROLES || "").trim();
 
           const targets = [
-            { name: "staging", baseUrl: process.env.STAGING_BASE_URL || "" },
-            { name: "production", baseUrl: process.env.PRODUCTION_BASE_URL || "" },
+            {
+              environment: "staging",
+              baseUrl: (process.env.STAGING_BASE_URL || "").trim(),
+              tenantId: (process.env.STAGING_TENANT_ID || "").trim(),
+            },
+            {
+              environment: "production",
+              baseUrl: (process.env.PRODUCTION_BASE_URL || "").trim(),
+              tenantId: (process.env.PRODUCTION_TENANT_ID || "").trim(),
+            },
           ].filter((target) => target.baseUrl);
 
           if (targets.length === 0) {
             throw new Error("No runtime check targets configured. Set ACP_STAGING_BASE_URL and/or ACP_PRODUCTION_BASE_URL repository variables.");
           }
 
-          async function probe(target) {
-            const startedAt = new Date().toISOString();
-            const start = Date.now();
-            const response = await fetch(`${target.baseUrl}/api/v1/health`, {
-              method: "GET",
-              headers: {
-                "user-agent": "agent-control-plane-synthetic-runtime-checks",
-              },
-            });
+          for (const target of targets) {
+            if (!target.baseUrl.startsWith("https://")) {
+              throw new Error(`base_url must start with https:// for ${target.environment} (received: ${target.baseUrl})`);
+            }
+          }
 
+          function nowIso() {
+            return new Date().toISOString();
+          }
+
+          function buildHeaders({ includeIdentity, tenantId } = {}) {
+            const headers = new Headers({
+              "user-agent": "agent-control-plane-synthetic-runtime-checks",
+            });
+            if (tenantId) {
+              headers.set("X-Tenant-Id", tenantId);
+            }
+            if (includeIdentity) {
+              headers.set("X-Authenticated-Subject", synthSubjectId);
+              headers.set("X-Authenticated-Roles", synthSubjectRoles);
+            }
+            return headers;
+          }
+
+          async function fetchJson(url, options) {
+            const startedAt = nowIso();
+            const start = Date.now();
+            const response = await fetch(url, options);
+            const statusCode = response.status;
             let json = null;
             try {
               json = await response.json();
             } catch {
               json = null;
             }
+            return {
+              ok: response.ok,
+              status_code: statusCode,
+              duration_ms: Date.now() - start,
+              started_at: startedAt,
+              completed_at: nowIso(),
+              json,
+              headers: Object.fromEntries(response.headers.entries()),
+            };
+          }
+
+          async function readEventStreamPrefix(url, options) {
+            const startedAt = nowIso();
+            const start = Date.now();
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 8000);
+            const response = await fetch(url, { ...options, signal: controller.signal });
+
+            const contentType = response.headers.get("content-type") || "";
+            const cacheControl = response.headers.get("cache-control") || "";
+
+            let text = "";
+            let firstByteAt = null;
+            try {
+              const reader = response.body?.getReader ? response.body.getReader() : null;
+              if (!reader) {
+                return {
+                  ok: false,
+                  started_at: startedAt,
+                  completed_at: nowIso(),
+                  duration_ms: Date.now() - start,
+                  latency_ms: null,
+                  status_code: response.status,
+                  content_type: contentType,
+                  cache_control: cacheControl,
+                  text: null,
+                  error: "missing_readable_stream",
+                };
+              }
+
+              const decoder = new TextDecoder();
+              const deadline = Date.now() + 5000;
+              while (Date.now() < deadline && text.length < 32768) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                if (value && value.length) {
+                  if (firstByteAt === null) firstByteAt = Date.now();
+                  text += decoder.decode(value, { stream: true });
+                  // Most endpoints send ready/snapshot early; bail once we have a couple events.
+                  if (text.includes("\nevent: ready\n") && (text.includes("\nevent: snapshot\n") || text.includes("\n\ndata:"))) {
+                    break;
+                  }
+                } else {
+                  await delay(25);
+                }
+              }
+            } catch (error) {
+              // Ignore; we'll return whatever we collected.
+            } finally {
+              clearTimeout(timeout);
+              controller.abort();
+            }
 
             return {
-              target: target.name,
-              base_url: target.baseUrl,
+              ok: response.ok,
               started_at: startedAt,
-              completed_at: new Date().toISOString(),
+              completed_at: nowIso(),
               duration_ms: Date.now() - start,
+              latency_ms: firstByteAt === null ? null : firstByteAt - start,
               status_code: response.status,
-              ok: response.ok && json?.data?.ok === true,
-              response_json: json,
+              content_type: contentType,
+              cache_control: cacheControl,
+              text,
+              error: null,
+            };
+          }
+
+          function parseTraceIdFromJson(json) {
+            const trace = json?.meta?.trace_id;
+            return typeof trace === "string" && trace ? trace : null;
+          }
+
+          function assert(condition, message) {
+            if (!condition) {
+              throw new Error(message);
+            }
+          }
+
+          function validateCheckShape(check, index) {
+            assert(check && typeof check === "object", `checks[${index}] must be an object`);
+            assert(typeof check.service === "string" && check.service !== "", `checks[${index}].service must be a non-empty string`);
+            assert(typeof check.environment === "string" && check.environment !== "", `checks[${index}].environment must be a non-empty string`);
+            assert(typeof check.check_id === "string" && check.check_id !== "", `checks[${index}].check_id must be a non-empty string`);
+            if (check.skipped === true) {
+              assert(typeof check.reason === "string" && check.reason !== "", `checks[${index}].reason must be set when skipped=true`);
+              return;
+            }
+            assert(typeof check.base_url === "string" && check.base_url.startsWith("https://"), `checks[${index}].base_url must start with https://`);
+            assert(typeof check.timestamp === "string" && check.timestamp !== "", `checks[${index}].timestamp must be set`);
+            assert(typeof check.status_code === "number", `checks[${index}].status_code must be a number`);
+            assert(typeof check.ok === "boolean", `checks[${index}].ok must be a boolean`);
+          }
+
+          function validateSummaryShape(summary) {
+            assert(summary && typeof summary === "object", "synthetic summary must be an object");
+            assert(typeof summary.ok === "boolean", "summary.ok must be a boolean");
+            assert(summary.service === service, `summary.service must be ${service}`);
+            assert(typeof summary.generated_at === "string" && summary.generated_at !== "", "summary.generated_at must be set");
+            assert(typeof summary.run_sse_probes === "boolean", "summary.run_sse_probes must be a boolean");
+            assert(Array.isArray(summary.configured_targets) && summary.configured_targets.length > 0, "summary.configured_targets must be a non-empty array");
+            assert(summary.configured_identity && typeof summary.configured_identity === "object", "summary.configured_identity must be an object");
+            assert(Array.isArray(summary.checks) && summary.checks.length > 0, "summary.checks must be a non-empty array");
+            summary.checks.forEach(validateCheckShape);
+          }
+
+          async function probeHealth(target) {
+            const url = `${target.baseUrl}/api/v1/health`;
+            const result = await fetchJson(url, { method: "GET", headers: buildHeaders() });
+            const traceId = parseTraceIdFromJson(result.json);
+            return {
+              service,
+              environment: target.environment,
+              check_id: "health_global",
+              base_url: target.baseUrl,
+              tenant_id: target.tenantId || null,
+              timestamp: result.completed_at,
+              started_at: result.started_at,
+              completed_at: result.completed_at,
+              duration_ms: result.duration_ms,
+              status_code: result.status_code,
+              ok: result.ok && result.json?.data?.ok === true,
+              trace_id: traceId,
+              response_json: result.json,
+            };
+          }
+
+          async function probeA2aStream(target) {
+            if (!runSseProbes) {
+              return { skipped: true, reason: "disabled", service, environment: target.environment, check_id: "a2a_stream_auth" };
+            }
+            if (!target.tenantId || !synthSubjectId || !synthSubjectRoles) {
+              return {
+                skipped: true,
+                reason: "missing_config",
+                missing: {
+                  tenant_id: !target.tenantId,
+                  synth_subject_id: !synthSubjectId,
+                  synth_subject_roles: !synthSubjectRoles,
+                },
+                service,
+                environment: target.environment,
+                check_id: "a2a_stream_auth",
+              };
+            }
+            const url = `${target.baseUrl}/api/v1/a2a/message:stream`;
+            const headers = buildHeaders({ includeIdentity: true, tenantId: target.tenantId });
+            const result = await readEventStreamPrefix(url, { method: "GET", headers });
+            const hasReady = typeof result.text === "string" && result.text.includes("\nevent: ready\n");
+            const hasSnapshot = typeof result.text === "string" && result.text.includes("\nevent: snapshot\n");
+            const ok =
+              result.ok &&
+              (result.content_type || "").startsWith("text/event-stream") &&
+              (result.cache_control || "").includes("no-cache") &&
+              hasReady &&
+              hasSnapshot;
+            return {
+              service,
+              environment: target.environment,
+              check_id: "a2a_stream_auth",
+              base_url: target.baseUrl,
+              tenant_id: target.tenantId,
+              timestamp: result.completed_at,
+              started_at: result.started_at,
+              completed_at: result.completed_at,
+              duration_ms: result.duration_ms,
+              latency_ms: result.latency_ms,
+              status_code: result.status_code,
+              ok,
+              first_event_received: hasReady,
+              trace_id: null,
+            };
+          }
+
+          async function probeMcpReady(target) {
+            if (!runSseProbes) {
+              return { skipped: true, reason: "disabled", service, environment: target.environment, check_id: "mcp_provider_ready" };
+            }
+            if (!target.tenantId || !synthSubjectId || !synthSubjectRoles) {
+              return {
+                skipped: true,
+                reason: "missing_config",
+                missing: {
+                  tenant_id: !target.tenantId,
+                  synth_subject_id: !synthSubjectId,
+                  synth_subject_roles: !synthSubjectRoles,
+                },
+                service,
+                environment: target.environment,
+                check_id: "mcp_provider_ready",
+              };
+            }
+            const listUrl = `${target.baseUrl}/api/v1/tool-providers`;
+            const listResult = await fetchJson(listUrl, {
+              method: "GET",
+              headers: buildHeaders({ includeIdentity: true, tenantId: target.tenantId }),
+            });
+            const items = Array.isArray(listResult.json?.data?.items) ? listResult.json.data.items : [];
+            const active = items.find((item) => item && item.status === "active" && typeof item.tool_provider_id === "string");
+            const providerId = active?.tool_provider_id || null;
+            if (!providerId) {
+              return {
+                skipped: true,
+                reason: "no_active_tool_provider",
+                service,
+                environment: target.environment,
+                check_id: "mcp_provider_ready",
+                base_url: target.baseUrl,
+                tenant_id: target.tenantId,
+                timestamp: listResult.completed_at,
+                status_code: listResult.status_code,
+                ok: listResult.ok,
+                trace_id: parseTraceIdFromJson(listResult.json),
+              };
+            }
+            const url = `${target.baseUrl}/api/v1/mcp/${providerId}`;
+            const result = await readEventStreamPrefix(url, {
+              method: "GET",
+              headers: buildHeaders({ includeIdentity: true, tenantId: target.tenantId }),
+            });
+            const hasReady = typeof result.text === "string" && result.text.includes("\nevent: ready\n");
+            const ok =
+              result.ok &&
+              (result.content_type || "").startsWith("text/event-stream") &&
+              (result.cache_control || "").includes("no-cache") &&
+              hasReady;
+            return {
+              service,
+              environment: target.environment,
+              check_id: "mcp_provider_ready",
+              provider: providerId,
+              base_url: target.baseUrl,
+              tenant_id: target.tenantId,
+              timestamp: result.completed_at,
+              started_at: result.started_at,
+              completed_at: result.completed_at,
+              duration_ms: result.duration_ms,
+              latency_ms: result.latency_ms,
+              status_code: result.status_code,
+              ok,
+              first_event_received: hasReady,
+              trace_id: null,
             };
           }
 
           (async () => {
-            const results = [];
+            const checks = [];
             for (const target of targets) {
-              results.push(await probe(target));
+              checks.push(await probeHealth(target));
+              checks.push(await probeA2aStream(target));
+              checks.push(await probeMcpReady(target));
             }
-            fs.writeFileSync(
-              "synthetic-runtime-checks/health-summary.json",
-              `${JSON.stringify({ ok: results.every((result) => result.ok), checks: results }, null, 2)}\n`,
-            );
 
-            if (results.some((result) => !result.ok)) {
+            const ok = checks.every((check) => check && (check.skipped === true || check.ok === true));
+            const summary = {
+              ok,
+              service,
+              generated_at: nowIso(),
+              run_sse_probes: runSseProbes,
+              configured_targets: targets.map((target) => ({
+                environment: target.environment,
+                base_url: target.baseUrl,
+                has_tenant_id: !!target.tenantId,
+              })),
+              configured_identity: {
+                has_subject_id: !!synthSubjectId,
+                has_subject_roles: !!synthSubjectRoles,
+              },
+              checks,
+            };
+
+            validateSummaryShape(summary);
+
+            fs.writeFileSync("synthetic-runtime-checks/synthetic-summary.json", `${JSON.stringify(summary, null, 2)}\n`);
+
+            if (!ok) {
               process.exitCode = 1;
             }
           })().catch((error) => {
@@ -92,12 +396,12 @@ jobs:
           });
           EOF
 
-      - name: Upload health artifact
+      - name: Upload synthetic artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: synthetic-runtime-health-${{ github.run_id }}
-          path: synthetic-runtime-checks/health-summary.json
+          path: synthetic-runtime-checks/
           if-no-files-found: error
 
   production-readonly-verify:
@@ -115,6 +419,14 @@ jobs:
           set -euo pipefail
           if [ -z "${BASE_URL}" ] || [ -z "${TENANT_ID}" ] || [ -z "${RUN_ID}" ]; then
             echo "ACP_PRODUCTION_BASE_URL, ACP_PRODUCTION_TENANT_ID, and ACP_PRODUCTION_RUN_ID must be set as repository variables." >&2
+            exit 1
+          fi
+          case "${BASE_URL}" in
+            https://*) ;;
+            *) echo "ACP_PRODUCTION_BASE_URL must start with https:// (received: ${BASE_URL})" >&2; exit 1 ;;
+          esac
+          if ! [[ "${RUN_ID}" =~ ^run_ ]]; then
+            echo "ACP_PRODUCTION_RUN_ID must start with run_ (received: ${RUN_ID})" >&2
             exit 1
           fi
           mkdir -p synthetic-runtime-checks

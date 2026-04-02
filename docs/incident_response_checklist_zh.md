@@ -43,6 +43,10 @@
 - `alert_rule_id`
 - `alert_route_id`
 - `check_id`
+- `environment`
+- `service`
+- `timestamp`
+- `request_id` (若可取得)
 - `tenant_id`
 - `trace_id`
 - `run_id`
@@ -50,7 +54,33 @@
 - `tool_provider_id`
 - `policy_id`
 - `verify_output_path`
-- `deploy version id`
+- `deploy_version_id`
+
+## 5.1 最小證據包（建議 JSON）
+
+事故期間請盡量產出一份可機器讀取的 evidence JSON（不要只截圖）。下面欄位與 `observability_integration_manifest.example.json` 的 evidence contract 對齊：
+
+```json
+{
+  "service": "agent-control-plane",
+  "environment": "production",
+  "timestamp": "2026-04-02T00:00:00.000Z",
+  "base_url": "https://<worker>",
+  "tenant_id": "tenant_prod",
+  "alert_rule_id": "health_5xx_burst",
+  "alert_route_id": "page_primary",
+  "check_id": "health_global",
+  "request_id": "<optional>",
+  "trace_id": "<trace>",
+  "run_id": "<optional>",
+  "approval_id": "<optional>",
+  "tool_provider_id": "<optional>",
+  "policy_id": "<optional>",
+  "verify_output_path": "<optional>",
+  "deploy_version_id": "<optional>",
+  "notes": "Short human summary + what changed + scope"
+}
+```
 
 ## 6. 路由與升級
 

@@ -169,7 +169,7 @@
 - `tool_provider_id`
 - `policy_id`
 - `verify_output_path`
-- `deploy version id`
+- `deploy_version_id`
 
 ## 9. 最小落地組合
 
@@ -193,3 +193,38 @@
   - 固定 synthetic check summary 與 verify summary 至少要輸出的欄位
 
 這樣即使後面接的是 Cloudflare、Grafana、Datadog 或自建告警系統，dashboard、alert rule、incident checklist 也能共用同一套 ID 與證據格式。
+
+## 11. 可執行的接入腳手架（建議流程）
+
+這一節的目標是把「文檔語義」變成「可落地的最小接入動作」。建議用同一份 manifest 來驅動 synthetic、告警路由、證據輸出與 dashboard refs，避免各系統各寫一份導致漂移。
+
+### 11.1 最小接入清單（1 個工作日內可完成）
+
+1. 把 `docs/observability_integration_manifest.example.json` 複製成你的平台配置來源，並替換 placeholder（例如目的地 ID、scheduler、實際 tenant 等）。
+2. 先落地四個 synthetic check：
+   - `health_global`
+   - `a2a_stream_auth`
+   - `mcp_provider_ready`
+   - `production_readonly_verify`
+3. 對齊告警路由：
+   - `page_primary`
+   - `ticket_platform`
+   - `info_observability`
+4. 確認 synthetic 與 verify 都會產出 evidence summary（JSON），並能被保存或回溯（例如 object storage 或工單附件）。
+5. 用 dashboard template 把 refs 串起來，至少能在一張 dashboard 看到：health、run create、workflow failed、production readonly verify。
+
+### 11.2 契約一致性檢查（本倉庫內）
+
+倉庫提供一個輕量的範例驗證工具，用來避免 manifest / dashboard / incident checklist 的 ID 與欄位契約漂移：
+
+```bash
+node scripts/validate_observability_examples.mjs
+```
+
+它會做的事（只驗證 examples，不會碰你的監控平台）：
+
+- manifest JSON 可解析，且 synthetic check / alert rules / routes 的 refs 不會指向不存在的 ID
+- dashboard template 內的 `synthetic_check_ref` / `alert_rule_ref` 能在 manifest 裡找到
+- incident checklist 至少包含 evidence contract 需要的關鍵欄位名稱
+
+如果你要在 CI 或 release gate 裡跑這個檢查，建議把它當作「文檔契約 lint」，避免接入時才發現 refs 漂了。

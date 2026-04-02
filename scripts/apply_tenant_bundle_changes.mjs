@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createHash } from "node:crypto";
 
 const PLACEHOLDER_PATTERN = /^<[^<>]+>$/;
 const DEFAULT_SUBJECT_ID = "bundle_applier";
@@ -22,6 +23,7 @@ function usage() {
     "  --subject-roles <roles> Subject roles header value; defaults to SUBJECT_ROLES or platform_admin",
     "  --apply-policies       Apply policy changes when desired policy fields are present",
     "  --output <path>        Evidence JSON output path; defaults next to the request file",
+    "  --idempotency-seed <s> Stable seed used to derive per-operation idempotency keys",
     "  --trusted-edge         Use X-Authenticated-* headers instead of X-Subject-*",
     "  --help                 Show this message",
     "",
@@ -42,6 +44,7 @@ function parseArgs(argv) {
     subjectRoles: process.env.SUBJECT_ROLES ?? DEFAULT_SUBJECT_ROLES,
     output: process.env.EVIDENCE_OUTPUT_PATH ?? null,
     applyPolicies: false,
+    idempotencySeed: process.env.IDEMPOTENCY_SEED ?? null,
     trustedEdge: process.env.NORTHBOUND_AUTH_MODE === "trusted_edge" || process.env.TRUSTED_EDGE === "true",
     help: false,
   };
@@ -91,6 +94,10 @@ function parseArgs(argv) {
         break;
       case "--output":
         args.output = next ?? null;
+        index += 1;
+        break;
+      case "--idempotency-seed":
+        args.idempotencySeed = next ?? null;
         index += 1;
         break;
       default:
@@ -176,8 +183,11 @@ function buildHeaders({ tenantId, subjectId, subjectRoles, trustedEdge, idempote
   const headers = {
     "content-type": "application/json",
     "x-tenant-id": tenantId,
-    "idempotency-key": idempotencyKey,
   };
+
+  if (typeof idempotencyKey === "string" && idempotencyKey.trim() !== "") {
+    headers["idempotency-key"] = idempotencyKey;
+  }
 
   if (trustedEdge) {
     headers["x-authenticated-subject"] = subjectId;
@@ -259,6 +269,16 @@ function collectPlaceholderPaths(value, basePath = "") {
   }
 
   return results;
+}
+
+function sha256Text(text) {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+function buildIdempotencyKey(seed, parts) {
+  const suffix = parts.filter((part) => typeof part === "string" && part.trim() !== "").join(":");
+  // Keep the header value short-ish but stable: seed hash + suffix.
+  return `bundle-apply:${seed}:${suffix}`.slice(0, 200);
 }
 
 function pickDesiredFields(item, fieldNames) {
@@ -542,7 +562,7 @@ function buildPolicyCreatePayload(item, desiredSpec) {
   return payload;
 }
 
-async function applyProviderWrite({ baseUrl, headers, item, desiredPatch, dryRun }) {
+async function applyProviderWrite({ baseUrl, headers, idempotencyKeyBase, item, desiredPatch, dryRun }) {
   const providerId = requireNonEmptyString(item.tool_provider_id, "tool_provider_id");
   const desiredKeys = Object.keys(desiredPatch);
   if (desiredKeys.length === 0) {
@@ -579,7 +599,7 @@ async function applyProviderWrite({ baseUrl, headers, item, desiredPatch, dryRun
     const response = unwrapApiData(
       await fetchJson(baseUrl, `/api/v1/tool-providers/${encodePathSegment(providerId)}`, {
         method: "POST",
-        headers,
+        headers: { ...headers, "idempotency-key": `${idempotencyKeyBase}:update` },
         body: JSON.stringify(desiredPatch),
       }),
     );
@@ -604,7 +624,7 @@ async function applyProviderWrite({ baseUrl, headers, item, desiredPatch, dryRun
   const response = unwrapApiData(
     await fetchJson(baseUrl, "/api/v1/tool-providers", {
       method: "POST",
-      headers,
+      headers: { ...headers, "idempotency-key": `${idempotencyKeyBase}:create` },
       body: JSON.stringify(createPayload),
     }),
   );
@@ -618,7 +638,7 @@ async function applyProviderWrite({ baseUrl, headers, item, desiredPatch, dryRun
   };
 }
 
-async function applyPolicyWrite({ baseUrl, headers, item, desiredSpec, applyPolicies, dryRun }) {
+async function applyPolicyWrite({ baseUrl, headers, idempotencyKeyBase, item, desiredSpec, applyPolicies, dryRun }) {
   const policyId = requireNonEmptyString(item.policy_id, "policy_id");
   const shouldApply = applyPolicies && hasPolicyMutationFields(desiredSpec);
 
@@ -657,7 +677,7 @@ async function applyPolicyWrite({ baseUrl, headers, item, desiredSpec, applyPoli
     const response = unwrapApiData(
       await fetchJson(baseUrl, `/api/v1/policies/${encodePathSegment(policyId)}:disable`, {
         method: "POST",
-        headers,
+        headers: { ...headers, "idempotency-key": `${idempotencyKeyBase}:disable` },
         body: JSON.stringify({ action: "disable_policy" }),
       }),
     );
@@ -681,7 +701,7 @@ async function applyPolicyWrite({ baseUrl, headers, item, desiredSpec, applyPoli
     const response = unwrapApiData(
       await fetchJson(baseUrl, `/api/v1/policies/${encodePathSegment(policyId)}`, {
         method: "POST",
-        headers,
+        headers: { ...headers, "idempotency-key": `${idempotencyKeyBase}:update` },
         body: JSON.stringify(updatePayload),
       }),
     );
@@ -703,7 +723,7 @@ async function applyPolicyWrite({ baseUrl, headers, item, desiredSpec, applyPoli
   const response = unwrapApiData(
     await fetchJson(baseUrl, "/api/v1/policies", {
       method: "POST",
-      headers,
+      headers: { ...headers, "idempotency-key": `${idempotencyKeyBase}:create` },
       body: JSON.stringify(createPayload),
     }),
   );
@@ -783,12 +803,14 @@ async function main() {
   const startedMs = Date.now();
   const requestPlaceholderPaths = collectPlaceholderPaths(request);
   const actions = Array.isArray(request?.actions) ? request.actions : [];
+  const requestHash = sha256Text(JSON.stringify(request));
+  const idempotencySeed = normalizeString(parsed.idempotencySeed) ?? requestHash.slice(0, 16);
   const headers = buildHeaders({
     tenantId,
     subjectId: normalizeString(parsed.subjectId) ?? DEFAULT_SUBJECT_ID,
     subjectRoles: normalizeString(parsed.subjectRoles) ?? DEFAULT_SUBJECT_ROLES,
     trustedEdge: parsed.trustedEdge,
-    idempotencyKey: `bundle-apply-${tenantId}-${Date.now()}`,
+    idempotencyKey: null,
   });
 
   const evidence = {
@@ -803,6 +825,8 @@ async function main() {
     duration_ms: null,
     request_type: normalizeString(request?.request_type) ?? null,
     schema_version: normalizeString(request?.schema_version) ?? null,
+    request_sha256: requestHash,
+    idempotency_seed: idempotencySeed,
     request_placeholder_paths: requestPlaceholderPaths,
     action_results: [],
     summary: {
@@ -865,6 +889,13 @@ async function main() {
           const result = await applyProviderWrite({
             baseUrl,
             headers,
+            idempotencyKeyBase: buildIdempotencyKey(idempotencySeed, [
+              tenantId,
+              actionId,
+              actionType,
+              `item${itemIndex}`,
+              providerId,
+            ]),
             item,
             desiredPatch,
             dryRun: false,
@@ -926,6 +957,13 @@ async function main() {
           const result = await applyPolicyWrite({
             baseUrl,
             headers,
+            idempotencyKeyBase: buildIdempotencyKey(idempotencySeed, [
+              tenantId,
+              actionId,
+              actionType,
+              `item${itemIndex}`,
+              policyId,
+            ]),
             item,
             desiredSpec,
             applyPolicies: parsed.applyPolicies,

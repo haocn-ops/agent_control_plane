@@ -46,6 +46,12 @@
 npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json --output-dir .secret-rotation
 ```
 
+若要在 maintenance window 前就把「計劃缺口」直接擋下（例如 rollback 覆蓋不足、verify command 沒有 VERIFY_OUTPUT_PATH 等），可加上 `--strict`：
+
+```bash
+npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json --output-dir .secret-rotation --strict
+```
+
 這個 bundle 會輸出：
 
 - `rotation-plan.json`
@@ -54,6 +60,7 @@ npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json 
 - `evidence/preview.json`
 - `evidence/cutover.json`
 - `evidence/rollback.json`
+- `evidence/command-log.txt`
 - `rotate.sh`
 
 建議在 maintenance window 前先跑一次：
@@ -73,6 +80,19 @@ npm run secret:rotation:bundle -- --plan docs/secret_rotation_plan.example.json 
 ```bash
 .secret-rotation/<tenant_id>/rotate.sh rollback
 ```
+
+若要讓 `rotate.sh` 執行 bundle 中已明確列出的命令，可加 `EXECUTE=1`：
+
+```bash
+EXECUTE=1 .secret-rotation/<tenant_id>/rotate.sh cutover
+```
+
+注意：
+
+- 預設仍是只顯示，不會執行
+- `EXECUTE=1` 只會執行 plan 內已明確存在的命令，例如 `secret_commands` 與 verify commands
+- provider `auth_ref` 的人工切換仍需操作者自己完成
+- 每次執行的命令都會記錄到 `evidence/command-log.txt`
 
 至少要確認：
 
@@ -94,7 +114,7 @@ wrangler secret put MCP_API_TOKEN_V2 --env staging
 wrangler secret put A2A_SHARED_KEY_V2 --env staging
 ```
 
-若是 production，請把 `--env staging` 去掉，並確定是在正確帳號與正確 Worker 上操作。
+若是 production，請把 `--env staging` 去掉（production 使用 top-level env），並確定是在正確帳號與正確 Worker 上操作。
 
 ### 4.3 切換 `auth_ref`
 
@@ -110,6 +130,7 @@ wrangler secret put A2A_SHARED_KEY_V2 --env staging
 切換後立刻跑一次對應環境的驗證：
 
 ```bash
+CHANGE_REF="<change_ref>" \
 BASE_URL="https://<worker>" \
 TENANT_ID="<tenant_id>" \
 VERIFY_OUTPUT_PATH="/tmp/secret-rotation-verify.json" \
@@ -124,6 +145,7 @@ npm run post-deploy:verify
 如果是 production readonly，只要拿既有 `RUN_ID`：
 
 ```bash
+CHANGE_REF="<change_ref>" \
 BASE_URL="https://<worker>" \
 TENANT_ID="<tenant_id>" \
 RUN_ID="<existing_run_id>" \
@@ -136,10 +158,12 @@ npm run post-deploy:verify:readonly
 
 - `rotation-manifest.json`
   - 確認預期的 verify output path 是否都存在
+  - 若 `validation.warnings` 非空，代表計劃仍有缺口（但不一定阻擋 cutover）
 - `evidence/preview.json`
   - 記錄誰完成了預檢與簽核
 - `evidence/cutover.json`
   - 記錄切換時間、操作者、verify output 路徑與結果摘要
+  - 建議把 verify output 的 `sha256`、`trace_id`、`run_id` 回填到 `verification_evidence.outputs[*]`
 
 ### 4.5 刪除舊 secret
 

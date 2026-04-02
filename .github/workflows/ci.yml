@@ -16,6 +16,25 @@ permissions:
   contents: read
 
 jobs:
+  validate-observability:
+    name: validate:observability
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate observability examples
+        run: npm run validate:observability
+
   verify-local:
     name: verify:local
     runs-on: ubuntu-latest

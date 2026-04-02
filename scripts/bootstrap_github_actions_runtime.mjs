@@ -10,6 +10,7 @@ const REQUIRED_VARIABLE_NAMES = [
   "ACP_PRODUCTION_RUN_ID",
 ];
 const REQUIRED_SECRET_NAMES = ["CLOUDFLARE_API_TOKEN"];
+const RECOMMENDED_SYNTHETIC_VARIABLE_NAMES = ["ACP_SYNTH_SUBJECT_ID", "ACP_SYNTH_SUBJECT_ROLES"];
 
 function hasFlag(flag) {
   return process.argv.includes(flag);
@@ -46,6 +47,21 @@ function collectEntries(names, kind) {
   return { entries, missing };
 }
 
+function collectOptionalEntries(names, kind) {
+  const entries = [];
+  const missing = [];
+  for (const name of names) {
+    const rawValue = process.env[name];
+    const value = typeof rawValue === "string" ? rawValue.trim() : "";
+    if (!value) {
+      missing.push(name);
+      continue;
+    }
+    entries.push({ kind, name, value });
+  }
+  return { entries, missing };
+}
+
 function runGh(args, options = {}) {
   execFileSync("gh", args, {
     stdio: options.stdio ?? "inherit",
@@ -63,6 +79,9 @@ function formatCommand(entry, repo) {
 function printUsage() {
   console.log(`Usage:
   npm run github:actions:bootstrap -- [--repo owner/name] [--dry-run] [--skip-variables] [--skip-secrets]
+  Optional synthetic check support:
+    --include-synthetic   Also set optional ACP_SYNTH_* variables if present in your environment
+    --require-synthetic   Require ACP_SYNTH_* variables to be present (implies --include-synthetic)
 
 Required environment variables:
   CLOUDFLARE_ACCOUNT_ID
@@ -72,6 +91,9 @@ Required environment variables:
   ACP_PRODUCTION_TENANT_ID
   ACP_PRODUCTION_RUN_ID
   CLOUDFLARE_API_TOKEN
+Optional (recommended for Synthetic Runtime Checks SSE probes):
+  ACP_SYNTH_SUBJECT_ID
+  ACP_SYNTH_SUBJECT_ROLES
 
 Notes:
   - Use --dry-run to print the gh commands without mutating the repository.
@@ -90,6 +112,8 @@ async function main() {
   const dryRun = hasFlag("--dry-run");
   const skipVariables = hasFlag("--skip-variables");
   const skipSecrets = hasFlag("--skip-secrets");
+  const includeSynthetic = hasFlag("--include-synthetic") || hasFlag("--require-synthetic");
+  const requireSynthetic = hasFlag("--require-synthetic");
 
   const variableResult = skipVariables
     ? { entries: [], missing: [] }
@@ -98,7 +122,16 @@ async function main() {
     ? { entries: [], missing: [] }
     : collectEntries(REQUIRED_SECRET_NAMES, "secret");
 
-  const missing = [...variableResult.missing, ...secretResult.missing];
+  const syntheticResult =
+    skipVariables || !includeSynthetic
+      ? { entries: [], missing: [] }
+      : collectOptionalEntries(RECOMMENDED_SYNTHETIC_VARIABLE_NAMES, "variable");
+
+  const missing = [
+    ...variableResult.missing,
+    ...secretResult.missing,
+    ...(requireSynthetic ? syntheticResult.missing : []),
+  ];
   if (missing.length > 0) {
     throw new Error(
       `Missing required environment values: ${missing.join(", ")}. ` +
@@ -106,7 +139,7 @@ async function main() {
     );
   }
 
-  const operations = [...variableResult.entries, ...secretResult.entries];
+  const operations = [...variableResult.entries, ...syntheticResult.entries, ...secretResult.entries];
   if (operations.length === 0) {
     console.log("Nothing to do: both variables and secrets were skipped.");
     return;
@@ -118,7 +151,15 @@ async function main() {
         repo,
         dry_run: dryRun,
         variable_count: variableResult.entries.length,
+        synthetic_variable_count: syntheticResult.entries.length,
         secret_count: secretResult.entries.length,
+        warnings:
+          includeSynthetic && !requireSynthetic && syntheticResult.missing.length > 0
+            ? [
+                "Synthetic Runtime Checks SSE probes are optional but recommended. Missing: " +
+                  syntheticResult.missing.join(", "),
+              ]
+            : [],
         operations: operations.map((entry) => ({
           kind: entry.kind,
           name: entry.name,

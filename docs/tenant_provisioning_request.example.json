@@ -30,7 +30,12 @@
     "change_ticket": "<fill-me>",
     "target_completion_date": "<fill-me>",
     "approver": "<fill-me>",
-    "external_system_record": "<fill-me>"
+    "external_system_record": "<fill-me>",
+    "submission": {
+      "endpoint_url": "https://<ticket-or-cmdb-endpoint>",
+      "idempotency_key": "<fill-me>",
+      "notes": "If the external system supports idempotency, set idempotency_key to avoid duplicate tickets on retry."
+    }
   },
   "actions": [
     {

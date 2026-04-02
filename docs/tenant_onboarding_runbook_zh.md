@@ -370,6 +370,30 @@ npm run provisioning:submit -- \
 
 這會額外產出 submission evidence JSON，方便後續交接或追查。
 
+若要在不打外部網路的情況下先產出一份「計畫提交」的 evidence（例如交給變更審核或工單建立前的預覽），可用 dry-run：
+
+```bash
+npm run provisioning:submit -- \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --endpoint https://<external-provisioning-endpoint> \
+  --dry-run
+```
+
+若外部系統支援冪等提交，建議提供 idempotency key（常見 header：`Idempotency-Key`）。這樣在重試或重送時不會建立重複工單：
+
+```bash
+npm run provisioning:submit -- \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --endpoint https://<external-provisioning-endpoint> \
+  --idempotency-key tenant_acme_onboarding_20260401
+```
+
+提交端也支援簡單重試（預設會 retry 429/5xx）；若要調整可用：
+
+- `--retries <n>`
+- `--retry-backoff-ms <n>`
+- `--retry-on 429,500,502,503,504`
+
 若要把 provisioning request 與 verify 結果再折疊回同一份交接狀態，可執行：
 
 ```bash
@@ -380,6 +404,17 @@ npm run tenant:handoff:update -- \
 ```
 
 預設會在 bundle 目錄下生成 `handoff-state.json`，讓接手方直接看到目前狀態、證據檔案與下一步建議。
+
+若要把 external submission evidence 與 apply evidence 一起折疊（推薦，交接時可以形成完整證據鏈），可加上：
+
+```bash
+npm run tenant:handoff:update -- \
+  --bundle .onboarding-bundles/tenant_acme/bundle.json \
+  --request .onboarding-bundles/tenant_acme/provisioning-request.json \
+  --submission .onboarding-bundles/tenant_acme/provisioning-submit-evidence.json \
+  --apply-evidence .onboarding-bundles/tenant_acme/apply-request-evidence.json \
+  --verify .onboarding-bundles/tenant_acme/verify-write-summary.json
+```
 
 若需要保守回滾預設 provider / policy，而不是手工逐項停用，可直接用 bundle 內的 rollback helper：
 

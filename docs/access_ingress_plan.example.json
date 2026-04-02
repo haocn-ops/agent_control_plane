@@ -5,8 +5,11 @@
   "northbound_auth_mode": "trusted_edge",
   "access_application_name": "agent-control-plane-staging-access",
   "service_token_name": "agent-control-plane-staging-service-token",
+  "tenant_header": "X-Tenant-Id",
   "trusted_subject_header": "X-Authenticated-Subject",
   "trusted_roles_header": "X-Authenticated-Roles",
+  "verification_subject_id": "post_deploy_verifier",
+  "verification_subject_roles": "platform_admin,legal_approver",
   "access_group_names": [
     "platform_admin",
     "legal_approver"

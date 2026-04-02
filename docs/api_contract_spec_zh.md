@@ -596,8 +596,29 @@
     "size_bytes": 196,
     "created_at": "2026-03-31T12:36:20Z",
     "body": {
+      "kind": "run_summary_v1",
       "run_id": "run_01JQ...",
-      "summary": "MVP workflow completed and produced a placeholder artifact."
+      "tenant_id": "tenant_acme",
+      "trace_id": "trc_01JQ...",
+      "request_id": "req_01JQ...",
+      "status": "completed",
+      "summary": "Run completed after approval.",
+      "started_at": "2026-03-31T12:35:10Z",
+      "completed_at": "2026-03-31T12:36:20Z",
+      "policy": {
+        "channel": "a2a_dispatch",
+        "subject_ref": "a2a_dispatch:agent_router",
+        "decision": "approval_required",
+        "effective_policy_id": "pol_default_a2a_dispatch_v1",
+        "approval_required": true
+      },
+      "approval": {
+        "approval_id": "apr_01JQ...",
+        "decision": "approved",
+        "decided_by": "user_legal_1",
+        "decided_at": "2026-03-31T12:35:40Z"
+      },
+      "generated_at": "2026-03-31T12:36:20Z"
     }
   },
   "meta": {

@@ -52,6 +52,49 @@ jobs:
     name: release-gate
     runs-on: ubuntu-latest
     steps:
+      - name: Validate workflow inputs
+        env:
+          MODE: ${{ github.event.inputs.verification_mode }}
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          EXPECTED_RUN_RATE_LIMIT: ${{ github.event.inputs.expected_run_rate_limit }}
+          EXPECTED_REPLAY_RATE_LIMIT: ${{ github.event.inputs.expected_replay_rate_limit }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MODE}" ]; then
+            echo "verification_mode is required" >&2
+            exit 1
+          fi
+          if [ "${MODE}" = "write" ] || [ "${MODE}" = "readonly" ]; then
+            if [ -z "${BASE_URL}" ] || [ -z "${TENANT_ID}" ]; then
+              echo "base_url and tenant_id are required when verification_mode=${MODE}" >&2
+              exit 1
+            fi
+            case "${BASE_URL}" in
+              https://*) ;;
+              *) echo "base_url must start with https:// (received: ${BASE_URL})" >&2; exit 1 ;;
+            esac
+          fi
+          if [ "${MODE}" = "readonly" ]; then
+            if [ -z "${RUN_ID}" ]; then
+              echo "run_id is required when verification_mode=readonly" >&2
+              exit 1
+            fi
+            if ! [[ "${RUN_ID}" =~ ^run_ ]]; then
+              echo "run_id must start with run_ (received: ${RUN_ID})" >&2
+              exit 1
+            fi
+          fi
+          if [ -n "${EXPECTED_RUN_RATE_LIMIT}" ] && ! [[ "${EXPECTED_RUN_RATE_LIMIT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "expected_run_rate_limit must be a positive integer or empty (received: ${EXPECTED_RUN_RATE_LIMIT})" >&2
+            exit 1
+          fi
+          if [ -n "${EXPECTED_REPLAY_RATE_LIMIT}" ] && ! [[ "${EXPECTED_REPLAY_RATE_LIMIT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "expected_replay_rate_limit must be a positive integer or empty (received: ${EXPECTED_REPLAY_RATE_LIMIT})" >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -77,6 +120,12 @@ jobs:
           set -euo pipefail
           npm run verify:build 2>&1 | tee release-gate/verify-build.log
 
+      - name: Validate observability examples
+        id: validate_observability
+        run: |
+          set -euo pipefail
+          npm run validate:observability 2>&1 | tee release-gate/validate-observability.log
+
       - name: Run write-mode remote verification
         id: verify_write
         if: ${{ github.event.inputs.verification_mode == 'write' }}
@@ -88,10 +137,6 @@ jobs:
           VERIFY_OUTPUT_PATH: release-gate/verify-write-summary.json
         run: |
           set -euo pipefail
-          if [ -z "${BASE_URL}" ]; then
-            echo "BASE_URL is required when verification_mode=write" >&2
-            exit 1
-          fi
           mkdir -p release-gate
           npm run post-deploy:verify 2>&1 | tee release-gate/verify-write.log
 
@@ -105,10 +150,6 @@ jobs:
           VERIFY_OUTPUT_PATH: release-gate/verify-readonly-summary.json
         run: |
           set -euo pipefail
-          if [ -z "${BASE_URL}" ]; then
-            echo "BASE_URL is required when verification_mode=readonly" >&2
-            exit 1
-          fi
           mkdir -p release-gate
           set -euo pipefail
           npm run post-deploy:verify:readonly 2>&1 | tee release-gate/verify-readonly.log
@@ -124,6 +165,7 @@ jobs:
           EXPECTED_REPLAY_RATE_LIMIT: ${{ github.event.inputs.expected_replay_rate_limit }}
           LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
           BUILD_OUTCOME: ${{ steps.verify_build.outcome }}
+          VALIDATE_OBSERVABILITY_OUTCOME: ${{ steps.validate_observability.outcome }}
           WRITE_OUTCOME: ${{ steps.verify_write.outcome }}
           READONLY_OUTCOME: ${{ steps.verify_readonly.outcome }}
         run: |
@@ -134,6 +176,7 @@ jobs:
           - Mode: ${MODE}
           - Local verification: ${LOCAL_OUTCOME}
           - Build verification: ${BUILD_OUTCOME}
+          - Observability validation: ${VALIDATE_OBSERVABILITY_OUTCOME}
           EOF
 
           if [ "${MODE}" = "write" ]; then
@@ -212,12 +255,14 @@ jobs:
               outcomes: {
                 local: process.env.LOCAL_OUTCOME || "skipped",
                 build: process.env.BUILD_OUTCOME || "skipped",
+                validate_observability: process.env.VALIDATE_OBSERVABILITY_OUTCOME || "skipped",
                 write: process.env.WRITE_OUTCOME || "skipped",
                 readonly: process.env.READONLY_OUTCOME || "skipped",
               },
               artifacts: {
                 local_log: "release-gate/verify-local.log",
                 build_log: "release-gate/verify-build.log",
+                validate_observability_log: "release-gate/validate-observability.log",
                 write_log: "release-gate/verify-write.log",
                 write_summary: "release-gate/verify-write-summary.json",
                 readonly_log: "release-gate/verify-readonly.log",

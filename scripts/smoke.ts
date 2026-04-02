@@ -565,6 +565,22 @@ async function main(): Promise<void> {
     assert.equal(fetchedArtifact.json.data.artifact_type, "a2a_remote_artifact");
     assert.equal(fetchedArtifact.json.data.body.summary, "remote analysis finished");
 
+    const runSummaryArtifact = (artifacts.json.data.items as Array<{ artifact_id: string; artifact_type: string }>).find(
+      (artifact) => artifact.artifact_type === "run_summary",
+    );
+    assert.ok(runSummaryArtifact);
+    const fetchedRunSummary = await api(
+      `/api/v1/runs/${firstRunId}/artifacts/${runSummaryArtifact?.artifact_id}?include_body=true`,
+    );
+    assert.equal(fetchedRunSummary.status, 200);
+    assert.equal(fetchedRunSummary.json.data.artifact_type, "run_summary");
+    assert.equal(fetchedRunSummary.json.data.body.kind, "run_summary_v1");
+    assert.equal(fetchedRunSummary.json.data.body.run_id, firstRunId);
+    assert.equal(fetchedRunSummary.json.data.body.status, "completed");
+    assert.equal(fetchedRunSummary.json.data.body.approval?.approval_id, approvalId);
+    assert.equal(fetchedRunSummary.json.data.body.approval?.decision, "approved");
+    assert.equal(fetchedRunSummary.json.data.body.outbound?.task_id, outboundTask.task_id);
+
     const missingArtifact = await api(`/api/v1/runs/${firstRunId}/artifacts/art_missing`);
     assert.equal(missingArtifact.status, 404);
     assert.equal(missingArtifact.json.error.code, "artifact_not_found");
@@ -2986,6 +3002,11 @@ class MockWorkflowInstance {
   private terminated = false;
   private readonly eventQueue = new Map<string, unknown[]>();
   private readonly waiters = new Map<string, (value: unknown) => void>();
+  private runStartedAt: string | null = null;
+  private policyEvaluationForSummary: SmokePolicyEvaluationResult | null = null;
+  private approvalIdForSummary: string | null = null;
+  private approvalDecisionForSummary: ApprovalDecisionSignal | null = null;
+  private outboundDispatchForSummary: Record<string, unknown> | null = null;
 
   constructor(
     public readonly id: string,
@@ -3005,7 +3026,7 @@ class MockWorkflowInstance {
 
   async start(): Promise<void> {
     try {
-      await this.markRunRunning();
+      this.runStartedAt = await this.markRunRunning();
       const plannerStepId = await this.createPlannerStep();
       const replayStartPhase = this.getReplayStartPhase();
       const outboundDispatch = extractOutboundDispatch(this.params.context);
@@ -3022,6 +3043,7 @@ class MockWorkflowInstance {
                 decision: "allow" as const,
               }
             : basePolicyEvaluation;
+      this.policyEvaluationForSummary = policyEvaluation;
 
       await this.recordAuditEvent(plannerStepId, "policy_evaluated", {
         channel: policyEvaluation.channel,
@@ -3067,6 +3089,7 @@ class MockWorkflowInstance {
       const needsApproval = policyEvaluation.decision === "approval_required";
       if (needsApproval) {
         const approvalId = await this.createApproval(plannerStepId, policyEvaluation);
+        this.approvalIdForSummary = approvalId;
         this.statusValue = "waiting";
         let decision: ApprovalDecisionSignal;
         try {
@@ -3165,6 +3188,7 @@ class MockWorkflowInstance {
           await this.failRun("approval_rejected", "Approval was rejected");
           return;
         }
+        this.approvalDecisionForSummary = decision;
         await this.deps.db
           .prepare(
             "UPDATE runs SET status = ?1, pending_approval_id = NULL, updated_at = ?2 WHERE run_id = ?3 AND tenant_id = ?4",
@@ -3196,6 +3220,22 @@ class MockWorkflowInstance {
           subjectId: this.params.subjectId,
           config: outboundDispatch,
         });
+
+        this.outboundDispatchForSummary = {
+          channel: "a2a_dispatch",
+          agent_id: outboundDispatch.agent_id,
+          tool_provider_id: outboundDispatch.tool_provider_id ?? null,
+          endpoint_url: outboundDispatch.endpoint_url,
+          wait_for_completion: outboundDispatch.wait_for_completion ?? false,
+          task_id: result.taskId,
+          remote_task_id: result.remoteTaskId,
+          resolved_endpoint_url: result.resolvedEndpointUrl ?? outboundDispatch.endpoint_url,
+          agent_card_url: result.agentCardUrl ?? null,
+          used_agent_card: result.usedAgentCard ?? false,
+          dispatch_status: result.status,
+          remote_status: null,
+          remote_artifact_written: false,
+        };
 
         const stepId = createId("step");
         const timestamp = nowIso();
@@ -3255,6 +3295,10 @@ class MockWorkflowInstance {
         if (outboundDispatch.wait_for_completion) {
           this.statusValue = "waiting";
           const remote = (await this.waitForEvent("a2a.task.status")) as A2AStatusSignal;
+          if (this.outboundDispatchForSummary) {
+            this.outboundDispatchForSummary.remote_status = remote.status;
+            this.outboundDispatchForSummary.remote_artifact_written = !!remote.artifact_json;
+          }
           if (remote.status === "failed" || remote.status === "cancelled") {
             await this.failRun("a2a_remote_failed", `Remote A2A task ended with status ${remote.status}`);
             return;
@@ -3287,12 +3331,12 @@ class MockWorkflowInstance {
         }
       }
 
-      await this.writeSummaryArtifact();
+      const completedAt = await this.writeSummaryArtifact();
       await this.deps.db
         .prepare(
           "UPDATE runs SET status = ?1, updated_at = ?2, completed_at = ?2 WHERE run_id = ?3 AND tenant_id = ?4",
         )
-        .bind("completed", nowIso(), this.params.runId, this.params.tenantId)
+        .bind("completed", completedAt, this.params.runId, this.params.tenantId)
         .run();
       const stub = this.deps.runCoordinator.get(this.params.runId);
       await stub.fetch("https://run-coordinator.internal/status", {
@@ -3328,10 +3372,11 @@ class MockWorkflowInstance {
     this.statusValue = "terminated";
   }
 
-  private async markRunRunning(): Promise<void> {
+  private async markRunRunning(): Promise<string> {
+    const timestamp = nowIso();
     await this.deps.db
       .prepare("UPDATE runs SET status = ?1, updated_at = ?2 WHERE run_id = ?3 AND tenant_id = ?4")
-      .bind("running", nowIso(), this.params.runId, this.params.tenantId)
+      .bind("running", timestamp, this.params.runId, this.params.tenantId)
       .run();
     const stub = this.deps.runCoordinator.get(this.params.runId);
     await stub.fetch("https://run-coordinator.internal/status", {
@@ -3339,6 +3384,7 @@ class MockWorkflowInstance {
       body: JSON.stringify({ status: "running" }),
     });
     this.statusValue = "running";
+    return timestamp;
   }
 
   private async createPlannerStep(): Promise<string> {
@@ -3699,14 +3745,83 @@ class MockWorkflowInstance {
     });
   }
 
-  private async writeSummaryArtifact(): Promise<void> {
+  private async writeSummaryArtifact(): Promise<string> {
+    const completedAt = nowIso();
+    const policyEvaluation = this.policyEvaluationForSummary;
+    let policySource: "matched" | "default" | "none" = "none";
+    let effectivePolicyId: string | null = null;
+    if (policyEvaluation?.policyId) {
+      policySource = "matched";
+      effectivePolicyId = policyEvaluation.policyId;
+    } else if (policyEvaluation?.decision === "approval_required") {
+      policySource = "default";
+      effectivePolicyId =
+        policyEvaluation.channel === "a2a_dispatch" ? DEFAULT_A2A_POLICY_ID : DEFAULT_EXTERNAL_POLICY_ID;
+    }
+
     const artifactId = createId("art");
     const body = JSON.stringify(
       {
+        kind: "run_summary_v1",
         run_id: this.params.runId,
+        tenant_id: this.params.tenantId,
         trace_id: this.params.traceId,
-        summary: "MVP workflow completed and produced a placeholder artifact.",
-        generated_at: nowIso(),
+        request_id: this.params.requestId,
+        status: "completed",
+        summary: policyEvaluation?.decision === "approval_required" ? "Run completed after approval." : "Run completed.",
+        started_at: this.runStartedAt,
+        completed_at: completedAt,
+        replay: (() => {
+          const replayContext = this.params.context.replay as Record<string, unknown> | undefined;
+          if (!replayContext || typeof replayContext.mode !== "string") {
+            return null;
+          }
+          const replayFromStepId =
+            replayContext.mode === "from_step" && typeof replayContext.from_step_id === "string"
+              ? replayContext.from_step_id
+              : null;
+          const replayStartPhase = this.getReplayStartPhase();
+          return {
+            mode: replayContext.mode,
+            from_step_id: replayFromStepId,
+            start_phase: replayStartPhase,
+            reason: typeof replayContext.reason === "string" ? replayContext.reason : null,
+          };
+        })(),
+        subject: {
+          subject_id: this.params.subjectId,
+          entry_agent_id: this.params.entryAgentId,
+        },
+        policy: policyEvaluation
+          ? {
+              channel: policyEvaluation.channel,
+              subject_ref: policyEvaluation.subjectRef,
+              decision: policyEvaluation.decision,
+              matched_policy_id: policyEvaluation.policyId,
+              effective_policy_id: effectivePolicyId,
+              policy_source: policySource,
+              approver_roles:
+                policyEvaluation.approverRoles.length > 0 ? policyEvaluation.approverRoles : DEFAULT_APPROVER_ROLES,
+              timeout_seconds: policyEvaluation.timeoutSeconds,
+              labels: policyEvaluation.labels,
+              risk_tier: this.params.policyContext.risk_tier ?? null,
+              approval_required: policyEvaluation.decision === "approval_required",
+            }
+          : null,
+        approval:
+          this.approvalIdForSummary || this.approvalDecisionForSummary
+            ? {
+                approval_id:
+                  this.approvalIdForSummary ?? this.approvalDecisionForSummary?.approval_id ?? null,
+                decision: this.approvalDecisionForSummary?.decision ?? null,
+                decided_by: this.approvalDecisionForSummary?.decided_by ?? null,
+                decided_at: this.approvalDecisionForSummary?.decided_at ?? null,
+                comment: this.approvalDecisionForSummary?.comment ?? null,
+                reason_code: this.approvalDecisionForSummary?.reason_code ?? null,
+              }
+            : null,
+        outbound: this.outboundDispatchForSummary,
+        generated_at: completedAt,
       },
       null,
       2,
@@ -3728,9 +3843,10 @@ class MockWorkflowInstance {
         r2Key,
         await hashPayload(JSON.parse(body)),
         body.length,
-        nowIso(),
+        completedAt,
       )
       .run();
+    return completedAt;
   }
 
   private async failRun(errorCode: string, message: string): Promise<void> {

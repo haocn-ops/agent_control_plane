@@ -42,6 +42,9 @@
   - `ACP_PRODUCTION_BASE_URL`
   - `ACP_PRODUCTION_TENANT_ID`
   - `ACP_PRODUCTION_RUN_ID`
+- Synthetic runtime checks (optional, for SSE probes):
+  - `ACP_SYNTH_SUBJECT_ID`
+  - `ACP_SYNTH_SUBJECT_ROLES`
 - GitHub Actions `Production Readonly Verify` 最近一次成功 run:
   - run id: `23852973146`
   - URL: [actions/runs/23852973146](https://github.com/haocn-ops/agent_control_plane/actions/runs/23852973146)
@@ -54,6 +57,7 @@
   - [access_ingress_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/access_ingress_runbook_zh.md)
 - 若要先生成一份可交接的入口治理計劃，可直接使用：
   - `npm run access:ingress:plan -- --plan-file docs/access_ingress_plan.example.json --output-dir /tmp/access-ingress-plan`
+  - 產物包含 `access-ingress-verify.sh`、`access-ingress-self-check.sh`、`access-ingress-fold-evidence.sh` 與 rotation checklist，可用來降低人工交接錯漏
 
 ## 4. 接手優先閱讀順序
 

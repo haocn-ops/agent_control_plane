@@ -1,13 +1,37 @@
 {
+  "kind": "observability_integration_manifest",
+  "schema_version": 1,
   "version": "2026-04-01",
   "service": "agent-control-plane",
   "description": "Monitoring integration contract for synthetic checks, alert routing, and evidence summaries. Replace placeholders with your platform-specific IDs.",
+  "environments": [
+    "staging",
+    "production"
+  ],
   "required_runtime_inputs": [
     "BASE_URL",
     "TENANT_ID",
     "OBS_SYNTH_SUBJECT",
     "OBS_SYNTH_ROLES"
   ],
+  "runtime_inputs": {
+    "synthetic_request_headers": {
+      "tenant_header": "X-Tenant-Id",
+      "subject_header": "X-Authenticated-Subject",
+      "roles_header": "X-Authenticated-Roles"
+    },
+    "verify_readonly_required_env": [
+      "BASE_URL",
+      "TENANT_ID",
+      "RUN_ID",
+      "SUBJECT_ID",
+      "SUBJECT_ROLES"
+    ],
+    "notes": [
+      "Synthetic checks assume northbound access is enforced by a trusted edge layer and the worker is deployed with NORTHBOUND_AUTH_MODE=trusted_edge.",
+      "OBS_SYNTH_SUBJECT/OBS_SYNTH_ROLES are placeholders for the synthetic executor identity. Verify scripts may use SUBJECT_ID/SUBJECT_ROLES."
+    ]
+  },
   "synthetic_checks": [
     {
       "id": "health_global",
@@ -39,6 +63,8 @@
       "evidence_summary": {
         "output": "synthetic-health-${environment}.json",
         "required_fields": [
+          "service",
+          "environment",
           "check_id",
           "base_url",
           "tenant_id",
@@ -76,9 +102,14 @@
       "evidence_summary": {
         "output": "synthetic-a2a-stream-${environment}.json",
         "required_fields": [
+          "service",
+          "environment",
           "check_id",
+          "base_url",
+          "tenant_id",
           "timestamp",
           "status_code",
+          "latency_ms",
           "first_event_received",
           "trace_id"
         ]
@@ -112,10 +143,15 @@
       "evidence_summary": {
         "output": "synthetic-mcp-ready-${provider}-${environment}.json",
         "required_fields": [
+          "service",
+          "environment",
           "check_id",
           "provider",
+          "base_url",
+          "tenant_id",
           "timestamp",
           "status_code",
+          "latency_ms",
           "first_event_received",
           "trace_id"
         ]
@@ -147,6 +183,9 @@
       "evidence_summary": {
         "output": "verify-production-readonly-${timestamp}.json",
         "required_fields": [
+          "service",
+          "environment",
+          "timestamp",
           "ok",
           "duration_ms",
           "base_url",
@@ -256,6 +295,7 @@
     }
   ],
   "evidence_contract": {
+    "trace_id_source": "Prefer response meta.trace_id when available; otherwise fall back to log field trace_id correlated by request_id.",
     "shared_required_fields": [
       "service",
       "environment",

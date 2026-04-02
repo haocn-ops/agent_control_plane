@@ -33,6 +33,26 @@ jobs:
     name: production-readonly-verify
     runs-on: ubuntu-latest
     steps:
+      - name: Validate workflow inputs
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ] || [ -z "${TENANT_ID}" ] || [ -z "${RUN_ID}" ]; then
+            echo "base_url, tenant_id, and run_id are required" >&2
+            exit 1
+          fi
+          case "${BASE_URL}" in
+            https://*) ;;
+            *) echo "base_url must start with https:// (received: ${BASE_URL})" >&2; exit 1 ;;
+          esac
+          if ! [[ "${RUN_ID}" =~ ^run_ ]]; then
+            echo "run_id must start with run_ (received: ${RUN_ID})" >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -44,6 +64,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate observability examples
+        id: validate_observability
+        run: |
+          set -euo pipefail
+          npm run validate:observability 2>&1 | tee production-readonly-verify/validate-observability.log
 
       - name: Run production readonly verification
         id: verify_readonly
@@ -63,6 +89,7 @@ jobs:
           BASE_URL: ${{ github.event.inputs.base_url }}
           TENANT_ID: ${{ github.event.inputs.tenant_id }}
           RUN_ID: ${{ github.event.inputs.run_id }}
+          VALIDATE_OBSERVABILITY_OUTCOME: ${{ steps.validate_observability.outcome }}
           VERIFY_READONLY_OUTCOME: ${{ steps.verify_readonly.outcome }}
         run: |
           mkdir -p production-readonly-verify
@@ -72,6 +99,7 @@ jobs:
           - Base URL: ${BASE_URL}
           - Tenant ID: ${TENANT_ID}
           - Run ID: ${RUN_ID}
+          - Observability validation: ${VALIDATE_OBSERVABILITY_OUTCOME}
           - Readonly verification: ${VERIFY_READONLY_OUTCOME}
           EOF
 
@@ -104,9 +132,11 @@ jobs:
                 run_id: process.env.RUN_ID || ""
               },
               outcomes: {
+                validate_observability: process.env.VALIDATE_OBSERVABILITY_OUTCOME || "skipped",
                 verify_readonly: process.env.VERIFY_READONLY_OUTCOME || "skipped"
               },
               artifacts: {
+                validate_observability_log: "production-readonly-verify/validate-observability.log",
                 verify_readonly_log: "production-readonly-verify/verify-readonly.log",
                 verify_readonly_summary: "production-readonly-verify/verify-readonly-summary.json",
                 summary_md: "production-readonly-verify/production-readonly-summary.md"

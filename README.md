@@ -18,6 +18,7 @@ As of 2026-04-01, the repo has passed:
 
 - `npm run verify:local`
 - `npm run verify:build`
+- `npm run validate:observability`
 
 A minimal GitHub Actions baseline now mirrors those checks on `push` and `pull_request` via [.github/workflows/ci.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/ci.yml).
 A separate manual release gate workflow now exists at [.github/workflows/manual-release-gate.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/manual-release-gate.yml) for `workflow_dispatch`-driven verification and artifact capture without any deploy.
@@ -45,6 +46,7 @@ npm install
 npm run types
 npm run verify:local
 npm run verify:build
+npm run validate:observability
 ```
 
 Generate tenant seed SQL:
@@ -90,6 +92,7 @@ npm run post-deploy:verify:readonly
 | `npm run smoke` | Mocked end-to-end smoke flow |
 | `npm run verify:local` | `check` + `smoke` |
 | `npm run verify:build` | Wrangler dry-run package validation |
+| `npm run validate:observability` | Validate observability example contracts and refs |
 | `npm run access:ingress:plan -- --plan-file <plan.json>` | Render an access ingress plan and checklist for a tenant/environment |
 | `npm run github:actions:bootstrap -- --dry-run` | Validate or push the GitHub Actions runtime variables / secret bootstrap |
 | `npm run provisioning:submit -- --request <file> --endpoint <url>` | Submit a provisioning request artifact to an external workflow or ticket endpoint |
@@ -182,6 +185,8 @@ Use the verification paths like this:
   - `npm run verify:local`
 - Pre-deploy package validation:
   - `npm run verify:build`
+- Observability example contract validation:
+  - `npm run validate:observability`
 - Staging or isolated verification tenant:
   - `npm run post-deploy:verify`
 - Production or shared tenant:
@@ -194,12 +199,14 @@ The GitHub Actions workflow at [.github/workflows/ci.yml](/Users/zh/Documents/co
 - it installs dependencies with `npm ci`
 - it runs `npm run verify:local`
 - it runs `npm run verify:build`
+- it runs `npm run validate:observability`
 
-That workflow is meant to catch local type/smoke regressions and Wrangler packaging regressions early. It does not perform deploys, post-deploy checks, or tenant-specific release validation.
+That workflow is meant to catch local type/smoke regressions, Wrangler packaging regressions, and observability contract drift early. It does not perform deploys, post-deploy checks, or tenant-specific release validation.
 
 For human release gating, use [.github/workflows/manual-release-gate.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/manual-release-gate.yml):
 
 - it runs the same local verification baseline
+- it runs `validate:observability`
 - it can optionally run write-mode remote verification against a staging or verify tenant
 - it can optionally run readonly remote verification against a deployed worker
 - it uploads logs, JSON summaries, and a short markdown summary as an artifact
@@ -209,6 +216,7 @@ For controlled staging rollout, use [.github/workflows/deploy-staging.yml](/User
 
 - it runs `verify:local`
 - it runs `wrangler deploy --dry-run --env staging`
+- it runs `validate:observability`
 - it deploys the `staging` environment
 - it runs write-mode `post-deploy:verify`
 - it uploads `staging-deploy-manifest.json`, logs, and JSON summary as an artifact
@@ -217,6 +225,7 @@ For controlled staging rollout, use [.github/workflows/deploy-staging.yml](/User
 For production-safe remote checks without deploy, use [.github/workflows/production-readonly-verify.yml](/Users/zh/Documents/codeX/agent_control_plane/.github/workflows/production-readonly-verify.yml):
 
 - it runs readonly `post-deploy:verify:readonly` against an existing `RUN_ID`
+- it runs `validate:observability`
 - it uploads `production-readonly-manifest.json`, logs, and JSON summary as an artifact
 - it does not deploy or mutate production data
 
@@ -224,6 +233,7 @@ For controlled production rollout, use [.github/workflows/deploy-production.yml]
 
 - it runs `verify:local`
 - it runs `wrangler deploy --dry-run --env=""`
+- it runs `validate:observability`
 - it can optionally run `wrangler d1 migrations apply ... --remote --env=""`
 - it deploys the top-level production worker
 - it runs readonly `post-deploy:verify:readonly`

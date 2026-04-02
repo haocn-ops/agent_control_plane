@@ -77,8 +77,20 @@ jobs:
             echo "base_url is required" >&2
             exit 1
           fi
+          case "${BASE_URL}" in
+            https://*) ;;
+            *) echo "base_url must start with https:// (received: ${BASE_URL})" >&2; exit 1 ;;
+          esac
           if [ -z "${RUN_ID}" ]; then
             echo "run_id is required" >&2
+            exit 1
+          fi
+          if ! [[ "${RUN_ID}" =~ ^run_ ]]; then
+            echo "run_id must start with run_ (received: ${RUN_ID})" >&2
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_API_TOKEN}" ]; then
+            echo "CLOUDFLARE_API_TOKEN secret is required for deploy workflows" >&2
             exit 1
           fi
           mkdir -p production-deploy
@@ -97,6 +109,12 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler deploy --dry-run --env="" 2>&1 | tee production-deploy/verify-build-production.log
+
+      - name: Validate observability examples
+        id: validate_observability
+        run: |
+          set -euo pipefail
+          npm run validate:observability 2>&1 | tee production-deploy/validate-observability.log
 
       - name: Apply production D1 migrations
         id: apply_migrations
@@ -133,6 +151,7 @@ jobs:
         env:
           VERIFY_LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
           VERIFY_BUILD_OUTCOME: ${{ steps.verify_build.outcome }}
+          VALIDATE_OBSERVABILITY_OUTCOME: ${{ steps.validate_observability.outcome }}
           APPLY_MIGRATIONS_OUTCOME: ${{ steps.apply_migrations.outcome }}
           DEPLOY_PRODUCTION_OUTCOME: ${{ steps.deploy_production.outcome }}
           VERIFY_READONLY_OUTCOME: ${{ steps.verify_readonly.outcome }}
@@ -150,6 +169,7 @@ jobs:
           - D1 database: ${D1_DATABASE}
           - Local verification: ${VERIFY_LOCAL_OUTCOME}
           - Production build verification: ${VERIFY_BUILD_OUTCOME}
+          - Observability validation: ${VALIDATE_OBSERVABILITY_OUTCOME}
           - Apply migrations: ${APPLY_MIGRATIONS_OUTCOME:-skipped}
           - Deploy production: ${DEPLOY_PRODUCTION_OUTCOME}
           - Readonly verification: ${VERIFY_READONLY_OUTCOME}
@@ -190,6 +210,7 @@ jobs:
               outcomes: {
                 verify_local: process.env.VERIFY_LOCAL_OUTCOME || "skipped",
                 verify_build: process.env.VERIFY_BUILD_OUTCOME || "skipped",
+                validate_observability: process.env.VALIDATE_OBSERVABILITY_OUTCOME || "skipped",
                 apply_migrations: process.env.APPLY_MIGRATIONS_OUTCOME || "skipped",
                 deploy_production: process.env.DEPLOY_PRODUCTION_OUTCOME || "skipped",
                 verify_readonly: process.env.VERIFY_READONLY_OUTCOME || "skipped"
@@ -198,6 +219,7 @@ jobs:
               artifacts: {
                 verify_local_log: "production-deploy/verify-local.log",
                 verify_build_log: "production-deploy/verify-build-production.log",
+                validate_observability_log: "production-deploy/validate-observability.log",
                 apply_migrations_log: "production-deploy/apply-migrations.log",
                 deploy_production_log: "production-deploy/deploy-production.log",
                 verify_readonly_log: "production-deploy/verify-readonly.log",

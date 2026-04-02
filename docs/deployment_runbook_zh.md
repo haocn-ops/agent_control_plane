@@ -453,17 +453,39 @@ artifact 內會包含：
 
 若只設 base URL，它仍可執行 health probes；若再補齊 production tenant / run ID，就能在排程中一併跑 readonly verify。
 
+若你也希望把 A2A stream / MCP ready 這類「入口與 SSE 通道」一起放進定時探針，建議另外設：
+
+- `ACP_STAGING_TENANT_ID`（staging SSE probes 需要）
+- `ACP_SYNTH_SUBJECT_ID`
+- `ACP_SYNTH_SUBJECT_ROLES`
+
+當這些值存在時，workflow 會額外對 staging/production 嘗試執行：
+
+- `GET /api/v1/a2a/message:stream`（檢查 `text/event-stream` 且含 `ready`/`snapshot`）
+- `GET /api/v1/tool-providers`（只讀，找一個 active provider）
+- `GET /api/v1/mcp/{toolProviderId}`（檢查 `text/event-stream` 且含 `ready`）
+
+若缺少上述值，SSE probes 會在輸出中標示 `skipped`，但 health probes 仍會照常執行。
+
 若要先驗證本機是否已備齊這些值與 deploy secret，可先跑：
 
 ```bash
 npm run github:actions:bootstrap -- --dry-run
 ```
 
+若你也要把 synthetic identity 變數一起 bootstrap（用於 Synthetic Runtime Checks SSE probes），可以用：
+
+```bash
+npm run github:actions:bootstrap -- --dry-run --include-synthetic
+```
+
 artifact 內會包含：
 
-- `health-summary.json`
+- `synthetic-summary.json`
 - `production-readonly.log`
 - `production-readonly-summary.json`
+
+`synthetic-summary.json` 會在 workflow 內先做一次結構自檢再落盤；若 summary schema 漂移或關鍵欄位缺失，workflow 會直接失敗，避免排程看起來成功但 artifact 已失真。
 
 適合用在：
 

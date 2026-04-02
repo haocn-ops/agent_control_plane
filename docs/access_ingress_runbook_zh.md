@@ -37,6 +37,8 @@
 
 在 `NORTHBOUND_AUTH_MODE=trusted_edge` 下，Worker 目前接受：
 
+- tenant
+  - `X-Tenant-Id`（每個 northbound 請求都必須帶）
 - subject
   - `CF-Access-Authenticated-User-Email`
   - `X-Authenticated-Subject`
@@ -179,6 +181,9 @@ npm run access:ingress:plan -- \
 - `access-ingress-plan.json`
 - `access-ingress-checklist.md`
 - `access-ingress-verify.sh`
+- `access-ingress-self-check.sh`
+- `access-ingress-fold-evidence.sh`
+- `access-ingress-rotation-checklist.md`
 - `access-ingress-evidence-template.json`
 - `access-ingress-handoff-manifest.json`
 
@@ -186,6 +191,10 @@ npm run access:ingress:plan -- \
 
 - `access-ingress-verify.sh`
   - 封裝了 write / readonly 驗證入口，減少手抄環境變數
+- `access-ingress-self-check.sh`
+  - 最小化檢查 `trusted_edge` 下的 ingress contract：沒有 identity header 會 `401`、`X-Subject-*` 覆寫會 `401`、identity 有但 tenant 缺失會 `400`
+- `access-ingress-fold-evidence.sh`
+  - 把 verify summary JSON 自動折疊回 evidence template，避免人工複製 `trace_id` / `run_id` / `duration_ms` / `check_count`
 - `access-ingress-evidence-template.json`
   - 保留 `trace_id`、`run_id`、`duration_ms`、`check_count` 等欄位骨架
 - `access-ingress-handoff-manifest.json`
@@ -196,13 +205,17 @@ npm run access:ingress:plan -- \
 ```bash
 bash /tmp/access-ingress-plan/access-ingress-verify.sh write
 RUN_ID="<existing_run_id>" bash /tmp/access-ingress-plan/access-ingress-verify.sh readonly
+bash /tmp/access-ingress-plan/access-ingress-self-check.sh
+bash /tmp/access-ingress-plan/access-ingress-fold-evidence.sh write /tmp/staging-verify.json
+bash /tmp/access-ingress-plan/access-ingress-fold-evidence.sh readonly /tmp/production-verify-readonly.json
 ```
 
 建議交接順序：
 
 1. 先看 `access-ingress-handoff-manifest.json`，確認入口治理約定與 verify summary 路徑
 2. 再跑 `access-ingress-verify.sh`
-3. 最後把結果補進 `access-ingress-evidence-template.json`
+3. 跑 `access-ingress-self-check.sh` 先確認 trusted_edge 行為沒有被入口層或 header 注入方式破壞
+4. 最後用 `access-ingress-fold-evidence.sh` 把結果折疊回 `access-ingress-evidence-template.json`
 
 ## 9. 常見故障
 

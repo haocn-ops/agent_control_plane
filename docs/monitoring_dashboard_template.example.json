@@ -1,6 +1,8 @@
 {
+  "dashboard_id": "acp_ops_v1",
   "title": "Agent Control Plane - Operations Dashboard",
   "description": "Monitoring-system-agnostic dashboard template for staging or production. Wire these panels to logs, synthetic checks, or metrics in your platform of choice.",
+  "service": "agent-control-plane",
   "recommended_refresh_interval_seconds": 60,
   "integration_contract": {
     "manifest_path": "docs/observability_integration_manifest.example.json",
@@ -16,6 +18,7 @@
       "name": "Golden Signals",
       "panels": [
         {
+          "panel_id": "golden_health_success_rate",
           "name": "Health success rate",
           "type": "timeseries",
           "source": "synthetic_check",
@@ -26,6 +29,7 @@
           "alert_rule_ref": "health_5xx_burst"
         },
         {
+          "panel_id": "golden_run_create_success_rate",
           "name": "Run create success rate",
           "type": "timeseries",
           "source": "api_logs",
@@ -35,6 +39,7 @@
           "alert_rule_ref": "run_create_error_burst"
         },
         {
+          "panel_id": "golden_run_completion_rate",
           "name": "Run completion rate",
           "type": "timeseries",
           "source": "d1",
@@ -44,6 +49,7 @@
           "alert_rule_ref": "workflow_failure_spike"
         },
         {
+          "panel_id": "golden_request_latency_p95",
           "name": "Request latency p95",
           "type": "timeseries",
           "source": "api_logs",
@@ -58,6 +64,7 @@
       "name": "Workflow Health",
       "panels": [
         {
+          "panel_id": "workflow_pending_approvals",
           "name": "Pending approvals",
           "type": "single_value",
           "source": "d1",
@@ -65,6 +72,7 @@
           "alert_threshold": "oldest pending approval over 30m"
         },
         {
+          "panel_id": "workflow_approval_timeout_ratio",
           "name": "Approval timeout ratio",
           "type": "timeseries",
           "source": "audit_events",
@@ -73,6 +81,7 @@
           "alert_rule_ref": "approval_timeout_ratio_high"
         },
         {
+          "panel_id": "workflow_failures",
           "name": "Workflow failures",
           "type": "timeseries",
           "source": "d1",
@@ -86,6 +95,7 @@
       "name": "Gateway Health",
       "panels": [
         {
+          "panel_id": "gateway_a2a_inbound_errors",
           "name": "A2A inbound errors",
           "type": "timeseries",
           "source": "api_logs",
@@ -93,6 +103,7 @@
           "alert_threshold": "above 1% over 10m"
         },
         {
+          "panel_id": "gateway_mcp_call_errors",
           "name": "MCP call errors",
           "type": "timeseries",
           "source": "api_logs",
@@ -101,6 +112,7 @@
           "alert_rule_ref": "mcp_call_error_burst"
         },
         {
+          "panel_id": "gateway_upstream_auth_errors",
           "name": "Upstream auth errors",
           "type": "timeseries",
           "source": "api_logs",
@@ -109,6 +121,7 @@
           "alert_rule_ref": "mcp_upstream_config_drift"
         },
         {
+          "panel_id": "gateway_a2a_stream_synthetic",
           "name": "A2A stream synthetic",
           "type": "status_history",
           "source": "synthetic_check",
@@ -118,6 +131,7 @@
           "alert_rule_ref": "a2a_stream_auth_regression"
         },
         {
+          "panel_id": "gateway_mcp_ready_synthetic",
           "name": "MCP ready synthetic",
           "type": "status_history",
           "source": "synthetic_check",
@@ -132,6 +146,7 @@
       "name": "Storage And Queue",
       "panels": [
         {
+          "panel_id": "storage_artifact_write_failures",
           "name": "Artifact write failures",
           "type": "timeseries",
           "source": "workflow_logs",
@@ -139,6 +154,7 @@
           "alert_threshold": "any sustained failure"
         },
         {
+          "panel_id": "queue_invalid_messages",
           "name": "Queue invalid messages",
           "type": "timeseries",
           "source": "queue_consumer_logs",
@@ -146,6 +162,7 @@
           "alert_threshold": "greater than 0 in a batch"
         },
         {
+          "panel_id": "queue_duplicate_rate",
           "name": "Queue duplicate rate",
           "type": "timeseries",
           "source": "queue_consumer_logs",
@@ -158,6 +175,7 @@
       "name": "Deployment And Verify",
       "panels": [
         {
+          "panel_id": "deploy_production_readonly_verify",
           "name": "Production readonly verify",
           "type": "status_history",
           "source": "verify_summary",
@@ -167,6 +185,7 @@
           "alert_rule_ref": "production_readonly_check_failed"
         },
         {
+          "panel_id": "deploy_latest_verify_duration",
           "name": "Latest verify duration",
           "type": "timeseries",
           "source": "verify_summary",

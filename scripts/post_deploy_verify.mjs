@@ -14,6 +14,8 @@ const verificationStartedAt = nowIso();
 const verificationStartedAtMs = Date.now();
 const verificationChecks = [];
 
+const verificationMeta = buildVerificationMeta();
+
 if (process.argv.includes("--help")) {
   printUsage();
   process.exit(0);
@@ -142,6 +144,7 @@ async function main() {
       duration_ms: Date.now() - verificationStartedAtMs,
       check_count: verificationChecks.length,
       checks: verificationChecks,
+      meta: verificationMeta,
       tool_provider_count: countItems(providers.json.data?.items),
       policy_count: countItems(policies.json.data?.items),
       ...readonlySummary,
@@ -388,6 +391,7 @@ async function main() {
     duration_ms: Date.now() - verificationStartedAtMs,
     check_count: verificationChecks.length,
     checks: verificationChecks,
+    meta: verificationMeta,
     tool_provider_id: toolProviderId,
     policy_id: policyId,
     tool_provider_status: fetchedDisabledProvider.json.data.status,
@@ -761,6 +765,9 @@ function printUsage() {
       "  EXPECT_RATE_LIMIT_RUNS_PER_MINUTE",
       "  EXPECT_RATE_LIMIT_REPLAYS_PER_MINUTE",
       "  VERIFY_OUTPUT_PATH",
+      "",
+      "CI env vars (optional):",
+      "  CHANGE_REF (used to annotate verification evidence in meta)",
     ].join("\n"),
   );
 }
@@ -777,6 +784,7 @@ main().catch((error) => {
     duration_ms: Date.now() - verificationStartedAtMs,
     check_count: verificationChecks.length,
     checks: verificationChecks,
+    meta: verificationMeta,
     error: serializeError(error),
   };
 
@@ -793,6 +801,29 @@ main().catch((error) => {
   );
   process.exit(1);
 });
+
+function buildVerificationMeta() {
+  return {
+    runtime: {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+    },
+    verifier: {
+      subject_id: subjectId,
+      subject_roles: subjectRoles,
+    },
+    change_ref: normalizeOptionalString(process.env.CHANGE_REF),
+    github: {
+      repository: normalizeOptionalString(process.env.GITHUB_REPOSITORY),
+      workflow: normalizeOptionalString(process.env.GITHUB_WORKFLOW),
+      run_id: normalizeOptionalString(process.env.GITHUB_RUN_ID),
+      run_attempt: normalizeOptionalString(process.env.GITHUB_RUN_ATTEMPT),
+      ref: normalizeOptionalString(process.env.GITHUB_REF),
+      sha: normalizeOptionalString(process.env.GITHUB_SHA),
+    },
+  };
+}
 
 function serializeError(error) {
   if (error instanceof Error) {

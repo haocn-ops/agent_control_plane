@@ -12,6 +12,8 @@ function printUsage() {
     "",
     "Options:",
     "  --request <file>      Provisioning request JSON to fold into the state",
+    "  --submission <file>   External submission evidence JSON to fold into the state",
+    "  --apply-evidence <file> Bundle apply evidence JSON to fold into the state",
     "  --verify <file>       Verification summary JSON to fold into the state",
     "  --state-in <file>     Existing handoff state JSON to update",
     "  --output <file>       Output path (default: <bundle-dir>/handoff-state.json)",
@@ -88,9 +90,15 @@ async function readJsonFile(filePath) {
   return { path: resolvedPath, raw, json: parsed };
 }
 
-function pickVerifiedState(stateIn, request, verify) {
+function pickVerifiedState(stateIn, request, submission, applyEvidence, verify) {
   if (verify?.json?.ok === true) {
     return "verified";
+  }
+  if (applyEvidence?.json?.ok === true && applyEvidence.json.mode === "write") {
+    return "applied";
+  }
+  if (submission?.json?.ok === true) {
+    return "submitted";
   }
   if (request) {
     return request.json.status === "draft" ? "ready_for_submission" : "submitted";
@@ -122,6 +130,7 @@ function summarizeRequest(request) {
     status: request.json.status ?? null,
     external_handoff: request.json.external_handoff ?? null,
     completion_criteria: request.json.completion_criteria ?? null,
+    tenant: request.json.tenant ?? null,
     actions: Array.isArray(request.json.actions)
       ? request.json.actions.map((action) => ({
           action_id: action?.action_id ?? null,
@@ -134,7 +143,56 @@ function summarizeRequest(request) {
   };
 }
 
+function summarizeSubmission(submission) {
+  const response = submission.json.response ?? null;
+  const endpoint = submission.json.endpoint ?? null;
+  return {
+    path: submission.path,
+    sha256: sha256(submission.raw),
+    ok: submission.json.ok === true,
+    submitted_at: submission.json.submitted_at ?? null,
+    dry_run: submission.json.dry_run === true,
+    endpoint: endpoint
+      ? {
+          url: endpoint.url ?? null,
+          method: endpoint.method ?? null,
+          timeout_ms: endpoint.timeout_ms ?? null,
+        }
+      : null,
+    request: submission.json.request?.metadata ?? null,
+    response: response
+      ? {
+          ok: response.ok ?? null,
+          skipped: response.skipped ?? null,
+          status: response.status ?? null,
+          status_text: response.status_text ?? null,
+          headers: response.headers ?? null,
+        }
+      : null,
+  };
+}
+
+function summarizeApplyEvidence(applyEvidence) {
+  return {
+    path: applyEvidence.path,
+    sha256: sha256(applyEvidence.raw),
+    ok: applyEvidence.json.ok === true,
+    mode: applyEvidence.json.mode ?? null,
+    base_url: applyEvidence.json.base_url ?? null,
+    tenant_id: applyEvidence.json.tenant_id ?? null,
+    started_at: applyEvidence.json.started_at ?? null,
+    completed_at: applyEvidence.json.completed_at ?? null,
+    duration_ms: applyEvidence.json.duration_ms ?? null,
+    request_type: applyEvidence.json.request_type ?? null,
+    schema_version: applyEvidence.json.schema_version ?? null,
+    summary: applyEvidence.json.summary ?? null,
+    error_count: Array.isArray(applyEvidence.json.errors) ? applyEvidence.json.errors.length : null,
+  };
+}
+
 function summarizeVerify(verify) {
+  const meta = verify.json.meta && typeof verify.json.meta === "object" && !Array.isArray(verify.json.meta) ? verify.json.meta : null;
+  const github = meta?.github && typeof meta.github === "object" && !Array.isArray(meta.github) ? meta.github : null;
   return {
     path: verify.path,
     sha256: sha256(verify.raw),
@@ -145,6 +203,21 @@ function summarizeVerify(verify) {
     duration_ms: verify.json.duration_ms ?? null,
     check_count: verify.json.check_count ?? null,
     verification_output_path: verify.json.verification_output_path ?? null,
+    meta: meta
+      ? {
+          change_ref: meta.change_ref ?? null,
+          github: github
+            ? {
+                repository: github.repository ?? null,
+                workflow: github.workflow ?? null,
+                run_id: github.run_id ?? null,
+                run_attempt: github.run_attempt ?? null,
+                ref: github.ref ?? null,
+                sha: github.sha ?? null,
+              }
+            : null,
+        }
+      : null,
   };
 }
 
@@ -157,6 +230,10 @@ async function main() {
 
   const bundle = await readJsonFile(requireString(args.bundle, "--bundle"));
   const request = normalizeOptionalString(args.request) ? await readJsonFile(args.request) : null;
+  const submission = normalizeOptionalString(args.submission) ? await readJsonFile(args.submission) : null;
+  const applyEvidence = normalizeOptionalString(args.applyEvidence)
+    ? await readJsonFile(args.applyEvidence)
+    : null;
   const verify = normalizeOptionalString(args.verify) ? await readJsonFile(args.verify) : null;
   const stateIn = normalizeOptionalString(args.stateIn) ? await readJsonFile(args.stateIn) : null;
 
@@ -166,17 +243,21 @@ async function main() {
 
   const existingState = stateIn?.json ?? {};
   const handoffState = {
-    status: pickVerifiedState(stateIn, request, verify),
+    status: pickVerifiedState(stateIn, request, submission, applyEvidence, verify),
     updated_at: new Date().toISOString(),
     updated_from: {
       bundle: bundle.path,
       request: request?.path ?? null,
+      submission: submission?.path ?? null,
+      apply_evidence: applyEvidence?.path ?? null,
       verify: verify?.path ?? null,
       state_in: stateIn?.path ?? null,
     },
   };
 
   const requestSummary = request ? summarizeRequest(request) : null;
+  const submissionSummary = submission ? summarizeSubmission(submission) : null;
+  const applySummary = applyEvidence ? summarizeApplyEvidence(applyEvidence) : null;
   const verifySummary = verify ? summarizeVerify(verify) : null;
   const bundleSummary = summarizeBundle(bundle);
 
@@ -184,10 +265,16 @@ async function main() {
   if (handoffState.status === "draft") {
     nextActions.push("submit provisioning request");
   }
+  if (handoffState.status === "ready_for_submission") {
+    nextActions.push("submit provisioning request");
+  }
+  if (handoffState.status === "submitted" && !applyEvidence) {
+    nextActions.push("apply bundle changes");
+  }
   if (request && handoffState.status === "ready_for_submission") {
     nextActions.push("apply bundle changes");
   }
-  if (request && !verify) {
+  if ((applyEvidence?.json?.ok === true || request) && !verify) {
     nextActions.push("run verification after request submission");
   }
   if (verify && verify.json.ok !== true) {
@@ -204,12 +291,18 @@ async function main() {
     },
     bundle: bundleSummary,
     request: requestSummary,
+    submission: submissionSummary,
+    apply: applySummary,
     verify: verifySummary,
     evidence: {
       bundle_path: bundle.path,
       bundle_sha256: sha256(bundle.raw),
       request_path: request?.path ?? null,
       request_sha256: request ? sha256(request.raw) : null,
+      submission_path: submission?.path ?? null,
+      submission_sha256: submission ? sha256(submission.raw) : null,
+      apply_evidence_path: applyEvidence?.path ?? null,
+      apply_evidence_sha256: applyEvidence ? sha256(applyEvidence.raw) : null,
       verify_path: verify?.path ?? null,
       verify_sha256: verify ? sha256(verify.raw) : null,
       state_in_path: stateIn?.path ?? null,

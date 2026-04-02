@@ -42,6 +42,31 @@ jobs:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
+      - name: Validate workflow inputs
+        env:
+          BASE_URL: ${{ github.event.inputs.base_url }}
+          TENANT_ID: ${{ github.event.inputs.tenant_id }}
+          EXPECTED_RUN_RATE_LIMIT: ${{ github.event.inputs.expected_run_rate_limit }}
+          EXPECTED_REPLAY_RATE_LIMIT: ${{ github.event.inputs.expected_replay_rate_limit }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_URL}" ] || [ -z "${TENANT_ID}" ]; then
+            echo "base_url and tenant_id are required" >&2
+            exit 1
+          fi
+          case "${BASE_URL}" in
+            https://*) ;;
+            *) echo "base_url must start with https:// (received: ${BASE_URL})" >&2; exit 1 ;;
+          esac
+          if [ -n "${EXPECTED_RUN_RATE_LIMIT}" ] && ! [[ "${EXPECTED_RUN_RATE_LIMIT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "expected_run_rate_limit must be a positive integer or empty (received: ${EXPECTED_RUN_RATE_LIMIT})" >&2
+            exit 1
+          fi
+          if [ -n "${EXPECTED_REPLAY_RATE_LIMIT}" ] && ! [[ "${EXPECTED_REPLAY_RATE_LIMIT}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "expected_replay_rate_limit must be a positive integer or empty (received: ${EXPECTED_REPLAY_RATE_LIMIT})" >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -66,6 +91,12 @@ jobs:
         run: |
           set -euo pipefail
           npx wrangler deploy --dry-run --env staging 2>&1 | tee staging-deploy/verify-build-staging.log
+
+      - name: Validate observability examples
+        id: validate_observability
+        run: |
+          set -euo pipefail
+          npm run validate:observability 2>&1 | tee staging-deploy/validate-observability.log
 
       - name: Deploy staging Worker
         id: deploy_staging
@@ -94,6 +125,7 @@ jobs:
           EXPECTED_REPLAY_RATE_LIMIT: ${{ github.event.inputs.expected_replay_rate_limit }}
           VERIFY_LOCAL_OUTCOME: ${{ steps.verify_local.outcome }}
           VERIFY_STAGING_BUILD_OUTCOME: ${{ steps.verify_staging_build.outcome }}
+          VALIDATE_OBSERVABILITY_OUTCOME: ${{ steps.validate_observability.outcome }}
           DEPLOY_STAGING_OUTCOME: ${{ steps.deploy_staging.outcome }}
           VERIFY_REMOTE_OUTCOME: ${{ steps.verify_remote.outcome }}
         run: |
@@ -105,6 +137,7 @@ jobs:
           - Tenant ID: ${TENANT_ID}
           - Local verification: ${VERIFY_LOCAL_OUTCOME}
           - Staging build verification: ${VERIFY_STAGING_BUILD_OUTCOME}
+          - Observability validation: ${VALIDATE_OBSERVABILITY_OUTCOME}
           - Deploy staging: ${DEPLOY_STAGING_OUTCOME}
           - Remote verification: ${VERIFY_REMOTE_OUTCOME}
           - Expected run rate limit: ${EXPECTED_RUN_RATE_LIMIT:-<none>}
@@ -143,12 +176,14 @@ jobs:
               outcomes: {
                 verify_local: process.env.VERIFY_LOCAL_OUTCOME || "skipped",
                 verify_staging_build: process.env.VERIFY_STAGING_BUILD_OUTCOME || "skipped",
+                validate_observability: process.env.VALIDATE_OBSERVABILITY_OUTCOME || "skipped",
                 deploy_staging: process.env.DEPLOY_STAGING_OUTCOME || "skipped",
                 verify_remote: process.env.VERIFY_REMOTE_OUTCOME || "skipped"
               },
               artifacts: {
                 verify_local_log: "staging-deploy/verify-local.log",
                 verify_staging_build_log: "staging-deploy/verify-build-staging.log",
+                validate_observability_log: "staging-deploy/validate-observability.log",
                 deploy_staging_log: "staging-deploy/deploy-staging.log",
                 verify_remote_log: "staging-deploy/verify-write.log",
                 verify_remote_summary: "staging-deploy/verify-write-summary.json",

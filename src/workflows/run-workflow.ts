@@ -39,7 +39,11 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
   }> {
     const params = event.payload;
 
-    await step.do("mark-run-running", async () => {
+    let approvalIdForSummary: string | null = null;
+    let approvalDecisionForSummary: ApprovalDecisionSignal | null = null;
+    let outboundDispatchForSummary: Record<string, unknown> | null = null;
+
+    const runningStartedAt = await step.do("mark-run-running", async () => {
       const timestamp = nowIso();
       await this.env.DB.prepare(
         "UPDATE runs SET status = ?1, updated_at = ?2 WHERE run_id = ?3 AND tenant_id = ?4",
@@ -48,7 +52,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         .run();
 
       await this.notifyCoordinator(params.runId, "/status", { status: "running" });
-      return { status: "running" };
+      return timestamp;
     });
 
     const plannerStep = await step.do("create-planner-step", async () => {
@@ -306,6 +310,7 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
 
         return approvalId;
       });
+      approvalIdForSummary = approvalId;
 
       let approvalEvent;
       try {
@@ -331,6 +336,8 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         }
         throw error;
       }
+
+      approvalDecisionForSummary = approvalEvent.payload;
 
       await step.do("apply-approval-decision", async () => {
         const timestamp = nowIso();
@@ -439,11 +446,32 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         return result;
       });
 
+      outboundDispatchForSummary = {
+        channel: "a2a_dispatch",
+        agent_id: outboundDispatch.agent_id,
+        tool_provider_id: outboundDispatch.tool_provider_id ?? null,
+        endpoint_url: outboundDispatch.endpoint_url,
+        wait_for_completion: outboundDispatch.wait_for_completion ?? false,
+        task_id: dispatchResult.taskId,
+        remote_task_id: dispatchResult.remoteTaskId,
+        resolved_endpoint_url: dispatchResult.resolvedEndpointUrl ?? outboundDispatch.endpoint_url,
+        agent_card_url: dispatchResult.agentCardUrl ?? null,
+        used_agent_card: dispatchResult.usedAgentCard ?? false,
+        dispatch_status: dispatchResult.status,
+        remote_status: null,
+        remote_artifact_written: false,
+      };
+
       if (outboundDispatch.wait_for_completion) {
         const remoteEvent = await step.waitForEvent<A2AStatusSignal>("wait-for-a2a-status", {
           type: "a2a.task.status",
           timeout: "12 hours",
         });
+
+        if (outboundDispatchForSummary) {
+          outboundDispatchForSummary.remote_status = remoteEvent.payload.status;
+          outboundDispatchForSummary.remote_artifact_written = !!remoteEvent.payload.artifact_json;
+        }
 
         await step.do("apply-a2a-status", async () => {
           const timestamp = nowIso();
@@ -514,13 +542,76 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
       }
     }
 
-    await step.do("write-artifact", async () => {
+    const runSummary = await step.do("write-artifact", async () => {
       const timestamp = nowIso();
       const artifactId = createId("art");
+      const replayContext = params.context.replay as Record<string, unknown> | undefined;
+      const replayFromStepId =
+        replayContext?.mode === "from_step" && typeof replayContext.from_step_id === "string"
+          ? replayContext.from_step_id
+          : null;
+      const replayStartPhase = getReplayStartPhase(replayContext);
+
+      let effectivePolicyId: string | null = null;
+      let policySource: "matched" | "default" | "none" = "none";
+      if (policyEvaluation.policyId) {
+        effectivePolicyId = policyEvaluation.policyId;
+        policySource = "matched";
+      } else if (needsApproval) {
+        effectivePolicyId =
+          policyEvaluation.channel === "a2a_dispatch" ? DEFAULT_A2A_POLICY_ID : DEFAULT_EXTERNAL_POLICY_ID;
+        policySource = "default";
+      }
+
       const artifactPayload = {
+        kind: "run_summary_v1",
         run_id: params.runId,
+        tenant_id: params.tenantId,
         trace_id: params.traceId,
-        summary: "MVP workflow completed and produced a placeholder artifact.",
+        request_id: params.requestId,
+        status: "completed",
+        summary: needsApproval ? "Run completed after approval." : "Run completed.",
+        started_at: runningStartedAt,
+        completed_at: timestamp,
+        replay:
+          replayContext && typeof replayContext.mode === "string"
+            ? {
+                mode: replayContext.mode,
+                from_step_id: replayFromStepId,
+                start_phase: replayStartPhase,
+                reason: typeof replayContext.reason === "string" ? replayContext.reason : null,
+              }
+            : null,
+        subject: {
+          subject_id: params.subjectId,
+          entry_agent_id: params.entryAgentId,
+        },
+        policy: {
+          channel: policyEvaluation.channel,
+          subject_ref: policyEvaluation.subjectRef,
+          decision: policyEvaluation.decision,
+          matched_policy_id: policyEvaluation.policyId,
+          effective_policy_id: effectivePolicyId,
+          policy_source: policySource,
+          approver_roles:
+            policyEvaluation.approverRoles.length > 0 ? policyEvaluation.approverRoles : DEFAULT_APPROVER_ROLES,
+          timeout_seconds: policyEvaluation.timeoutSeconds,
+          labels: policyEvaluation.labels,
+          risk_tier: params.policyContext.risk_tier ?? null,
+          approval_required: needsApproval,
+        },
+        approval:
+          approvalIdForSummary || approvalDecisionForSummary
+            ? {
+                approval_id: approvalIdForSummary ?? approvalDecisionForSummary?.approval_id ?? null,
+                decision: approvalDecisionForSummary?.decision ?? null,
+                decided_by: approvalDecisionForSummary?.decided_by ?? null,
+                decided_at: approvalDecisionForSummary?.decided_at ?? null,
+                comment: approvalDecisionForSummary?.comment ?? null,
+                reason_code: approvalDecisionForSummary?.reason_code ?? null,
+              }
+            : null,
+        outbound: outboundDispatchForSummary,
         generated_at: timestamp,
       };
       const body = JSON.stringify(artifactPayload, null, 2);
@@ -549,15 +640,14 @@ export class RunWorkflow extends WorkflowEntrypoint<Env, RunWorkflowParams> {
         )
         .run();
 
-      return artifactId;
+      return { artifactId, completedAt: timestamp };
     });
 
     await step.do("finalize-run", async () => {
-      const timestamp = nowIso();
       await this.env.DB.prepare(
         "UPDATE runs SET status = ?1, updated_at = ?2, completed_at = ?2 WHERE run_id = ?3 AND tenant_id = ?4",
       )
-        .bind("completed", timestamp, params.runId, params.tenantId)
+        .bind("completed", runSummary.completedAt, params.runId, params.tenantId)
         .run();
       await this.notifyCoordinator(params.runId, "/status", { status: "completed" });
       return { status: "completed" };
