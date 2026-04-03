@@ -47,6 +47,38 @@
 
 兩者都以固定 60 秒時間窗計算；若未設定、設為空字串，或設為 `0`，代表不啟用該類限流。
 
+### 2.1.2 Billing / Stripe 可選 vars（Week 7）
+
+本輪自助計費切片新增了 Stripe checkout 與 provider webhook/portal 相關能力，建議在 staging / production 以 Worker vars + secrets 方式管理以下欄位：
+
+- `BILLING_SELF_SERVE_PROVIDER`
+  - 建議值：`stripe` 或 `mock_checkout`
+  - 作用：決定 workspace 自助升級優先使用哪個 provider
+- `BILLING_RETURN_BASE_URL`
+  - 例如：`https://govrail.net`
+  - 作用：生成 checkout 完成後返回的 settings review URL
+- `STRIPE_SECRET_KEY`
+  - 作用：建立 Stripe Checkout Session 與 Customer Portal Session
+  - 建議：使用 secret 注入，不放在公開 vars
+- `STRIPE_WEBHOOK_SECRET`
+  - 作用：驗證 Stripe-Signature，防止偽造 webhook
+  - 建議：使用 secret 注入，不放在公開 vars
+- `STRIPE_PRICE_ID_PRO_MONTHLY`
+  - 作用：Pro 月付 price id（有配置時優先於 inline `price_data`）
+- `STRIPE_PRICE_ID_PRO_YEARLY`
+  - 作用：Pro 年付 price id（有配置時優先於 inline `price_data`）
+- `STRIPE_CUSTOMER_PORTAL_RETURN_URL`
+  - 例如：`https://govrail.net/settings?intent=manage-plan`
+  - 作用：portal 結束後返回 console 的固定 URL。建立 portal session 時可以透過 API 的 `return_url` 請求欄位直接指定最終落點；未提供時會採用這個 env var，再沒有時才退回 `BILLING_RETURN_BASE_URL` 對應的 settings URL。這個 URL 只用於 customer portal 完成後的返回，不是 Stripe webhook 或 checkout 成功的 redirect。
+
+最小建議配置（staging / production）：
+
+1. `BILLING_SELF_SERVE_PROVIDER=stripe`
+2. 配置 `STRIPE_SECRET_KEY`、`STRIPE_WEBHOOK_SECRET`
+3. 配置 `BILLING_RETURN_BASE_URL`
+4. 視價格管理策略配置 `STRIPE_PRICE_ID_PRO_MONTHLY`、`STRIPE_PRICE_ID_PRO_YEARLY`
+5. 若啟用 customer portal，配置 `STRIPE_CUSTOMER_PORTAL_RETURN_URL`
+
 ### 2.2 目前沒有直接依賴的 Worker secrets
 
 截至 2026-03-31，倉庫內代碼沒有直接讀取例如：

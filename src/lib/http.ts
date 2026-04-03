@@ -65,6 +65,31 @@ export function getNorthboundAuthMode(env: Env): NorthboundAuthMode {
   return env.NORTHBOUND_AUTH_MODE === "trusted_edge" ? "trusted_edge" : "permissive";
 }
 
+export function getNorthboundApiKeyCredential(request: Request): string | null {
+  const authorizationHeader = request.headers.get("authorization")?.trim() ?? "";
+  const apiKeyHeader = request.headers.get("x-api-key")?.trim() ?? "";
+  const bearerMatch = authorizationHeader.match(/^Bearer\s+(.+)$/i);
+  const bearerToken = bearerMatch?.[1]?.trim() ?? "";
+
+  if (bearerToken !== "" && apiKeyHeader !== "" && bearerToken !== apiKeyHeader) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "Authorization bearer token and X-API-Key must match when both are provided",
+    );
+  }
+
+  if (bearerToken !== "") {
+    return bearerToken;
+  }
+
+  if (apiKeyHeader !== "") {
+    return apiKeyHeader;
+  }
+
+  return null;
+}
+
 export function enforceNorthboundAccess(request: Request, env: Env): void {
   if (getNorthboundAuthMode(env) !== "trusted_edge") {
     return;
@@ -81,6 +106,10 @@ export function enforceNorthboundAccess(request: Request, env: Env): void {
       "unauthorized",
       "Direct X-Subject-* identity overrides are disabled in trusted_edge mode",
     );
+  }
+
+  if (getNorthboundApiKeyCredential(request)) {
+    return;
   }
 
   const trustedSubjectId =

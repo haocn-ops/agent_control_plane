@@ -1,35 +1,22 @@
-import { ActivityFeed } from "@/components/dashboard/activity-feed";
-import { AgentStatusList } from "@/components/dashboard/agent-status-list";
-import { RecentTasks } from "@/components/dashboard/recent-tasks";
-import { RuntimeChart } from "@/components/dashboard/runtime-chart";
-import { ServiceHealthCard } from "@/components/dashboard/service-health-card";
-import { StatsCards } from "@/components/dashboard/stats-cards";
+import { WorkspaceLaunchpad } from "@/components/home/workspace-launchpad";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
+import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
-export default function DashboardPage() {
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  const workspaceContext = await resolveWorkspaceContextForServer();
+
   return (
     <div className="space-y-8">
       <PageHeader
-        eyebrow="Dashboard"
-        title="Govrail"
-        description="A governed operations console for agent runtime health, execution monitoring, approvals, and operator workflows."
-        badge={<Badge variant="strong">All systems nominal</Badge>}
+        eyebrow="Workspace launchpad"
+        title="SaaS Workspace Launch Hub"
+        description="Track Week 8 readiness posture for the current workspace and jump into onboarding, credential, usage, billing, verification, and mock go-live surfaces."
+        badge={<Badge variant="strong">{workspaceContext.workspace.slug}</Badge>}
       />
-
-      <StatsCards />
-
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <RuntimeChart />
-        <ServiceHealthCard />
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <AgentStatusList />
-        <ActivityFeed />
-      </div>
-
-      <RecentTasks />
+      <WorkspaceLaunchpad workspaceSlug={workspaceContext.workspace.slug} />
     </div>
   );
 }

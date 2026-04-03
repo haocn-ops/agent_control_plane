@@ -1,17 +1,11 @@
+import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+
 function getBaseUrl(): string {
   return (
     process.env.CONTROL_PLANE_BASE_URL ??
     process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL ??
     ""
   ).replace(/\/$/, "");
-}
-
-function getTenantId(): string {
-  return (
-    process.env.CONTROL_PLANE_TENANT_ID ??
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_TENANT_ID ??
-    "tenant_demo"
-  );
 }
 
 function getSubjectId(): string {
@@ -30,7 +24,10 @@ function getSubjectRoles(): string {
   );
 }
 
-export async function proxyControlPlane(path: string, options?: { includeTenant?: boolean }): Promise<Response> {
+export async function proxyControlPlane(
+  path: string,
+  options?: { includeTenant?: boolean; init?: RequestInit },
+): Promise<Response> {
   const baseUrl = getBaseUrl();
   if (!baseUrl) {
     return Response.json(
@@ -44,19 +41,31 @@ export async function proxyControlPlane(path: string, options?: { includeTenant?
     );
   }
 
+  const workspaceContext = await resolveWorkspaceContextForServer();
   const headers = new Headers({
     accept: "application/json",
-    "x-authenticated-subject": getSubjectId(),
-    "x-authenticated-roles": getSubjectRoles()
+    "x-authenticated-subject": workspaceContext.workspace.subject_id ?? getSubjectId(),
+    "x-authenticated-roles": workspaceContext.workspace.subject_roles ?? getSubjectRoles(),
+    "x-workspace-id": workspaceContext.workspace.workspace_id,
+    "x-workspace-slug": workspaceContext.workspace.slug,
   });
 
   if (options?.includeTenant !== false) {
-    headers.set("x-tenant-id", getTenantId());
+    headers.set("x-tenant-id", workspaceContext.workspace.tenant_id);
+  }
+
+  const upstreamHeaders = new Headers(headers);
+  if (options?.init?.headers) {
+    const extraHeaders = new Headers(options.init.headers);
+    extraHeaders.forEach((value, key) => {
+      upstreamHeaders.set(key, value);
+    });
   }
 
   const upstream = await fetch(`${baseUrl}${path}`, {
-    headers,
-    cache: "no-store"
+    ...(options?.init ?? {}),
+    headers: upstreamHeaders,
+    cache: "no-store",
   });
 
   return new Response(upstream.body, {
@@ -70,7 +79,7 @@ export async function proxyControlPlane(path: string, options?: { includeTenant?
 export async function proxyControlPlaneOrFallback<T>(
   path: string,
   fallbackData: T,
-  options?: { includeTenant?: boolean },
+  options?: { includeTenant?: boolean; init?: RequestInit },
 ): Promise<Response> {
   const upstream = await proxyControlPlane(path, options);
   if (upstream.ok) {

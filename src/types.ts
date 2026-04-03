@@ -332,3 +332,191 @@ export interface PolicyRow {
   created_at: string;
   updated_at: string;
 }
+
+export interface OrganizationRow {
+  organization_id: string;
+  slug: string;
+  display_name: string;
+  status: "active" | "disabled";
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserRow {
+  user_id: string;
+  email: string;
+  email_normalized: string;
+  display_name: string | null;
+  auth_provider: string;
+  auth_subject: string;
+  status: "active" | "disabled";
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrganizationMembershipRow {
+  membership_id: string;
+  organization_id: string;
+  user_id: string;
+  role: "organization_owner" | "organization_admin" | "billing_admin" | "member";
+  status: "active" | "invited" | "disabled";
+  joined_at: string | null;
+  invited_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PricingPlanRow {
+  plan_id: string;
+  code: string;
+  display_name: string;
+  tier: "free" | "paid" | "enterprise";
+  status: "active" | "disabled";
+  monthly_price_cents: number;
+  yearly_price_cents: number | null;
+  limits_json: string;
+  features_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceRow {
+  workspace_id: string;
+  organization_id: string;
+  tenant_id: string;
+  slug: string;
+  display_name: string;
+  status: "active" | "disabled";
+  plan_id: string;
+  data_region: string;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceMembershipRow {
+  workspace_membership_id: string;
+  workspace_id: string;
+  user_id: string;
+  role: "workspace_owner" | "workspace_admin" | "operator" | "approver" | "auditor" | "viewer";
+  status: "active" | "invited" | "disabled";
+  joined_at: string | null;
+  invited_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceInvitationRow {
+  invitation_id: string;
+  organization_id: string;
+  workspace_id: string | null;
+  email_normalized: string;
+  role: string;
+  token_hash: string;
+  status: "pending" | "accepted" | "expired" | "revoked";
+  invited_by_user_id: string | null;
+  expires_at: string;
+  accepted_by_user_id: string | null;
+  accepted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ServiceAccountRow {
+  service_account_id: string;
+  workspace_id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  role: string;
+  status: "active" | "disabled";
+  created_by_user_id: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiKeyRow {
+  api_key_id: string;
+  workspace_id: string;
+  tenant_id: string;
+  service_account_id: string | null;
+  key_prefix: string;
+  key_hash: string;
+  scope_json: string;
+  status: "active" | "revoked" | "expired" | "disabled";
+  created_by_user_id: string | null;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspacePlanSubscriptionRow {
+  subscription_id: string;
+  workspace_id: string;
+  organization_id: string;
+  plan_id: string;
+  billing_provider: string;
+  external_customer_ref: string | null;
+  external_subscription_ref: string | null;
+  status: "active" | "trialing" | "past_due" | "cancelled" | "paused";
+  current_period_start: string | null;
+  current_period_end: string | null;
+  cancel_at_period_end: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BillingCheckoutSessionRow {
+  checkout_session_id: string;
+  workspace_id: string;
+  organization_id: string;
+  current_plan_id: string;
+  target_plan_id: string;
+  billing_interval: "monthly" | "yearly";
+  billing_provider: string;
+  status: "open" | "completed" | "expired" | "cancelled";
+  expires_at: string;
+  completed_at: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UsageLedgerRow {
+  usage_event_id: string;
+  workspace_id: string;
+  organization_id: string;
+  tenant_id: string;
+  meter_name: string;
+  quantity: number;
+  source_type: string;
+  source_id: string | null;
+  period_start: string;
+  period_end: string;
+  metadata_json: string;
+  created_at: string;
+}
+
+export interface WorkspaceDeliveryTrackRow {
+  track_id: string;
+  workspace_id: string;
+  organization_id: string;
+  track_key: "verification" | "go_live";
+  status: "pending" | "in_progress" | "complete";
+  owner_user_id: string | null;
+  notes_text: string;
+  evidence_json: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkspaceAccessRow extends WorkspaceRow {
+  organization_slug: string;
+  organization_display_name: string;
+  membership_role: WorkspaceMembershipRow["role"];
+}

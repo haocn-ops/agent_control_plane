@@ -23,9 +23,9 @@ function formatDecision(decision: string): string {
   return decision;
 }
 
-export function PolicyMatrix() {
+export function PolicyMatrix({ workspaceSlug }: { workspaceSlug: string }) {
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["policies"],
+    queryKey: ["policies", workspaceSlug],
     queryFn: fetchPolicies
   });
 

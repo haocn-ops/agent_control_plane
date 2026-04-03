@@ -1,7 +1,10 @@
 import { PolicyMatrix } from "@/components/egress/policy-matrix";
 import { PageHeader } from "@/components/page-header";
+import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
-export default function EgressPage() {
+export default async function EgressPage() {
+  const workspaceContext = await resolveWorkspaceContextForServer();
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -9,7 +12,7 @@ export default function EgressPage() {
         title="Outbound permission control"
         description="Review which destinations are allowed, denied, or routed through approval-required policy."
       />
-      <PolicyMatrix />
+      <PolicyMatrix workspaceSlug={workspaceContext.workspace.slug} />
     </div>
   );
 }

@@ -8,6 +8,13 @@ declare namespace Cloudflare {
 	interface Env {
 		ARTIFACTS_BUCKET: R2Bucket;
 		NORTHBOUND_AUTH_MODE?: string;
+		BILLING_SELF_SERVE_PROVIDER?: string;
+		BILLING_RETURN_BASE_URL?: string;
+		STRIPE_SECRET_KEY?: string;
+		STRIPE_WEBHOOK_SECRET?: string;
+		STRIPE_PRICE_ID_PRO_MONTHLY?: string;
+		STRIPE_PRICE_ID_PRO_YEARLY?: string;
+		STRIPE_CUSTOMER_PORTAL_RETURN_URL?: string;
 		DB: D1Database;
 		EVENT_QUEUE: Queue;
 		RUN_COORDINATOR: DurableObjectNamespace<import("./src/index").RunCoordinator>;

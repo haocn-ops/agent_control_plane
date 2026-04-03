@@ -34,6 +34,8 @@ One important current boundary:
 
 - northbound auth is assumed to be enforced by Cloudflare Access or another trusted edge layer
 - the Worker defaults to a permissive local/test mode, but can now be switched to `NORTHBOUND_AUTH_MODE=trusted_edge` so only trusted edge identity headers are accepted and direct `X-Subject-*` overrides are rejected
+- workspace-scoped API keys can now authenticate northbound runtime calls via `Authorization: Bearer <key>` or `X-API-Key`, with the Worker deriving `tenant_id` from the bound workspace/service account instead of trusting a caller-supplied `X-Tenant-Id`
+- the runtime currently enforces a minimal scope gate on API keys that include `runs:write`; keys with empty scope still work for backward compatibility, while future iterations will tighten the guard and rely on additional scopes such as `runs:manage`, `approvals:write`, `a2a:write`, and `mcp:call` when those APIs become scoped
 
 It is not yet a fully productionized service. Access rollout, production onboarding automation, external provisioning, secret rotation, monitoring, and environment hardening still need to be completed.
 
@@ -186,6 +188,12 @@ Start here based on what you need:
 - Implementation status matrix:
   - [docs/implementation_status_matrix_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/implementation_status_matrix_zh.md)
 
+## Week 8 readiness summary
+
+The Week 8 readiness summary card also lets platform_admin dive deeper into the follow-up work behind each indicator. Each metric can filter the Week 8 readiness follow-up list down to the workspaces that contributed to that count (e.g., those with a recent successful demo run but no billing warning), and it links directly to the onboarding, billing, verification, or go-live surfaces where that follow-up happens. All of these actions remain navigation-only governance cues; there is no impersonation, automation, or support tooling behind the drill-downs.
+
+When a readiness metric launches onboarding, settings, verification, or go-live, the target surface receives `source=admin-readiness`, the current `week8_focus`, and the workspace/organization context. Each surface now shows a reminder banner explaining what focus launched the follow-up and offers a “Return to admin readiness view” link that preserves the same week8_focus and governance filter, so the navigation lane circles back without losing the original context.
+
 ## Verification Modes
 
 Use the verification paths like this:
@@ -274,3 +282,4 @@ The most important remaining work before serious production rollout is:
 
 - `wrangler deploy --dry-run` may print a local Wrangler log write warning in restricted environments; if the dry-run itself succeeds, that warning is usually non-blocking.
 - `scripts/post_deploy_verify.mjs --help` prints usage for both write and readonly verification modes.
+- Stripe customer portal creation accepts an optional `return_url` in the request payload; absent that override, the Worker uses `STRIPE_CUSTOMER_PORTAL_RETURN_URL`, and only falls back to `BILLING_RETURN_BASE_URL` / `settings?intent=manage-plan` when both are missing. This URL is the portal's post-session return target, not the checkout success redirect or webhook endpoint.

@@ -1,0 +1,1590 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  completeBillingCheckoutSession,
+  cancelBillingSubscription,
+  createBillingPortalSession,
+  createBillingCheckoutSession,
+  downloadWorkspaceAuditExport,
+  fetchBillingCheckoutSession,
+  fetchCurrentWorkspace,
+  fetchWorkspaceDedicatedEnvironmentReadiness,
+  fetchWorkspaceSsoReadiness,
+  resumeBillingSubscription,
+} from "@/services/control-plane";
+
+function formatPrice(monthlyPriceCents: number): string {
+  if (monthlyPriceCents <= 0) {
+    return "Custom / free";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(monthlyPriceCents / 100);
+}
+
+function formatMetricValue(key: string, value: number): string {
+  if (key === "artifact_storage_bytes") {
+    if (value < 1024) {
+      return `${value} B`;
+    }
+    if (value < 1024 * 1024) {
+      return `${(value / 1024).toFixed(1)} KB`;
+    }
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  return String(value);
+}
+
+function formatDate(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+  return new Date(value).toLocaleDateString();
+}
+
+function formatUsageFraction(metric: { used: number; limit: number | null }): number {
+  if (!metric.limit || metric.limit <= 0) {
+    return 0;
+  }
+  return Math.min(100, (metric.used / metric.limit) * 100);
+}
+
+function billingBadgeVariant(tone: "positive" | "warning" | "neutral"): "strong" | "default" | "subtle" {
+  if (tone === "positive") {
+    return "strong";
+  }
+  if (tone === "warning") {
+    return "default";
+  }
+  return "subtle";
+}
+
+function intentMatchesAction(
+  highlightIntent: "upgrade" | "manage-plan" | "resolve-billing" | null,
+  href?: string,
+): boolean {
+  if (!highlightIntent || !href) {
+    return false;
+  }
+  return href.includes(`intent=${highlightIntent}`);
+}
+
+function formatFeatureStatusLabel(status?: string | null): string {
+  if (!status) {
+    return "staged";
+  }
+  return status.replace(/_/g, " ");
+}
+
+function formatSsoProtocolLabel(protocol: string): string {
+  if (protocol.toLowerCase() === "oidc") {
+    return "OIDC";
+  }
+  if (protocol.toLowerCase() === "saml") {
+    return "SAML";
+  }
+  return protocol.toUpperCase();
+}
+
+function formatDedicatedDeploymentModelLabel(model?: string | null): string {
+  if (!model) {
+    return "single tenant";
+  }
+  return model.replace(/_/g, " ");
+}
+
+type CheckoutSessionStatus =
+  | "created"
+  | "open"
+  | "ready"
+  | "requires_confirmation"
+  | "completed"
+  | "expired"
+  | "cancelled"
+  | "failed";
+
+type CheckoutSessionSummary = {
+  session_id: string;
+  status: CheckoutSessionStatus | string;
+  billing_interval: "monthly" | "yearly";
+  billing_provider: string | null;
+  target_plan_id: string | null;
+  target_plan_code: string | null;
+  target_plan_display_name: string | null;
+  expires_at: string | null;
+  checkout_url: string | null;
+  review_url: string | null;
+};
+
+type CheckoutSessionEnvelope = {
+  session?: CheckoutSessionSummary;
+  checkout_session?: CheckoutSessionSummary;
+  [key: string]: unknown;
+};
+
+type BillingProviderSummary = {
+  code: string;
+  display_name?: string | null;
+};
+
+function formatBillingProviderLabel(
+  providerCode?: string | null,
+  providers: BillingProviderSummary[] = [],
+): string {
+  if (!providerCode) {
+    return "Manual";
+  }
+  const match = providers.find((provider) => provider.code === providerCode);
+  return match?.display_name ?? providerCode;
+}
+
+type CheckoutFlowState = {
+  creating: boolean;
+  refreshing: boolean;
+  completing: boolean;
+  error: string | null;
+  notice: string | null;
+  session: CheckoutSessionSummary | null;
+};
+
+function defaultCheckoutFlowState(): CheckoutFlowState {
+  return {
+    creating: false,
+    refreshing: false,
+    completing: false,
+    error: null,
+    notice: null,
+    session: null,
+  };
+}
+
+type SubscriptionActionState = {
+  openingPortal: boolean;
+  cancelling: boolean;
+  resuming: boolean;
+  error: string | null;
+  notice: string | null;
+};
+
+function defaultSubscriptionActionState(): SubscriptionActionState {
+  return {
+    openingPortal: false,
+    cancelling: false,
+    resuming: false,
+    error: null,
+    notice: null,
+  };
+}
+
+type AuditExportState = {
+  exporting: boolean;
+  error: string | null;
+  notice: string | null;
+};
+
+function defaultAuditExportState(): AuditExportState {
+  return {
+    exporting: false,
+    error: null,
+    notice: null,
+  };
+}
+
+function extractCheckoutSession(payload: CheckoutSessionEnvelope): CheckoutSessionSummary | null {
+  if (payload.session) {
+    return payload.session;
+  }
+  if (payload.checkout_session) {
+    return payload.checkout_session;
+  }
+  return null;
+}
+
+function isCheckoutReadyForCompletion(status: string, billingProvider?: string | null): boolean {
+  return billingProvider === "mock_checkout" && ["created", "open", "ready", "requires_confirmation"].includes(status);
+}
+
+type SettingsSource = "admin-attention" | "admin-readiness" | "onboarding";
+type DeliveryContext = "recent_activity";
+
+function normalizeSettingsSource(source?: string | null): SettingsSource | null {
+  if (source === "admin-attention" || source === "admin-readiness" || source === "onboarding") {
+    return source;
+  }
+  return null;
+}
+
+function normalizeDeliveryContext(value?: string | null): DeliveryContext | null {
+  return value === "recent_activity" ? "recent_activity" : null;
+}
+
+function normalizeRecentTrackKey(value?: string | null): "verification" | "go_live" | null {
+  if (value === "verification" || value === "go_live") {
+    return value;
+  }
+  return null;
+}
+
+function normalizeRecentUpdateKind(value?: string | null): ControlPlaneAdminDeliveryUpdateKind | null {
+  if (
+    value === "verification" ||
+    value === "go_live" ||
+    value === "verification_completed" ||
+    value === "go_live_completed" ||
+    value === "evidence_only"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+type SettingsHrefArgs = {
+  pathname: string;
+  source?: SettingsSource | null;
+  week8Focus?: string | null;
+  attentionWorkspace?: string | null;
+  attentionOrganization?: string | null;
+  deliveryContext?: DeliveryContext | null;
+  recentTrackKey?: "verification" | "go_live" | null;
+  recentUpdateKind?: ControlPlaneAdminDeliveryUpdateKind | null;
+  evidenceCount?: number | null;
+  recentOwnerLabel?: string | null;
+  intent?: "manage-plan" | "resolve-billing" | "upgrade";
+};
+
+function buildSettingsHref(args: SettingsHrefArgs): string {
+  const [basePath, rawQuery] = args.pathname.split("?", 2);
+  const searchParams = new URLSearchParams(rawQuery ?? "");
+  if (args.source) {
+    searchParams.set("source", args.source);
+  }
+  if (args.week8Focus) {
+    searchParams.set("week8_focus", args.week8Focus);
+  }
+  if (args.attentionWorkspace) {
+    searchParams.set("attention_workspace", args.attentionWorkspace);
+  }
+  if (args.attentionOrganization) {
+    searchParams.set("attention_organization", args.attentionOrganization);
+  }
+  if (args.deliveryContext) {
+    searchParams.set("delivery_context", args.deliveryContext);
+  }
+  if (args.recentTrackKey) {
+    searchParams.set("recent_track_key", args.recentTrackKey);
+  }
+  if (args.recentUpdateKind) {
+    searchParams.set("recent_update_kind", args.recentUpdateKind);
+  }
+  if (typeof args.evidenceCount === "number") {
+    searchParams.set("evidence_count", String(args.evidenceCount));
+  }
+  if (args.recentOwnerLabel) {
+    searchParams.set("recent_owner_label", args.recentOwnerLabel);
+  }
+  if (args.intent) {
+    searchParams.set("intent", args.intent);
+  }
+  const query = searchParams.toString();
+  return query ? `${basePath}?${query}` : basePath;
+}
+
+function buildSettingsIntentHref(
+  intent: "manage-plan" | "resolve-billing" | "upgrade",
+  args: Omit<SettingsHrefArgs, "pathname" | "intent">,
+): string {
+  return buildSettingsHref({
+    pathname: "/settings",
+    ...args,
+    intent,
+  });
+}
+
+function buildAdminReturnHref(args: {
+  source: SettingsSource | null;
+  week8Focus?: string | null;
+  attentionWorkspace?: string | null;
+  attentionOrganization?: string | null;
+  recentTrackKey?: "verification" | "go_live" | null;
+}): string {
+  const searchParams = new URLSearchParams();
+  if (args.source === "admin-attention") {
+    if (args.recentTrackKey) {
+      searchParams.set("queue_surface", args.recentTrackKey);
+    }
+    searchParams.set("queue_returned", "1");
+  }
+  if (args.source === "admin-readiness") {
+    if (args.week8Focus) {
+      searchParams.set("week8_focus", args.week8Focus);
+    }
+    searchParams.set("readiness_returned", "1");
+  }
+  if (args.attentionWorkspace) {
+    searchParams.set("attention_workspace", args.attentionWorkspace);
+  }
+  if (args.attentionOrganization) {
+    searchParams.set("attention_organization", args.attentionOrganization);
+  }
+  const query = searchParams.toString();
+  return query ? `/admin?${query}` : "/admin";
+}
+
+function readinessFocusLabel(focus?: string | null): string {
+  if (!focus) {
+    return "current focus";
+  }
+  if (focus === "baseline") {
+    return "baseline";
+  }
+  if (focus === "credentials") {
+    return "credentials";
+  }
+  if (focus === "demo_run") {
+    return "demo run";
+  }
+  if (focus === "billing_warning") {
+    return "billing warning";
+  }
+  if (focus === "go_live_ready") {
+    return "mock go-live readiness";
+  }
+  return focus;
+}
+
+export function WorkspaceSettingsPanel({
+  workspaceSlug,
+  highlightIntent = null,
+  initialCheckoutSessionId = null,
+  source,
+  week8Focus,
+  attentionWorkspace,
+  attentionOrganization,
+  deliveryContext,
+  recentTrackKey,
+  recentUpdateKind,
+  evidenceCount,
+  recentOwnerLabel,
+}: {
+  workspaceSlug: string;
+  highlightIntent?: "upgrade" | "manage-plan" | "resolve-billing" | null;
+  initialCheckoutSessionId?: string | null;
+  source?: string | null;
+  week8Focus?: string | null;
+  attentionWorkspace?: string | null;
+  attentionOrganization?: string | null;
+  deliveryContext?: string | null;
+  recentTrackKey?: string | null;
+  recentUpdateKind?: string | null;
+  evidenceCount?: number | null;
+  recentOwnerLabel?: string | null;
+}) {
+  const queryClient = useQueryClient();
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["workspace-settings", workspaceSlug],
+    queryFn: fetchCurrentWorkspace,
+  });
+  const {
+    data: ssoReadiness,
+    isLoading: isSsoLoading,
+    isError: isSsoError,
+  } = useQuery({
+    queryKey: ["workspace-sso-readiness", workspaceSlug],
+    queryFn: fetchWorkspaceSsoReadiness,
+  });
+  const {
+    data: dedicatedEnvironmentReadiness,
+    isLoading: isDedicatedEnvironmentLoading,
+    isError: isDedicatedEnvironmentError,
+  } = useQuery({
+    queryKey: ["workspace-dedicated-environment-readiness", workspaceSlug],
+    queryFn: fetchWorkspaceDedicatedEnvironmentReadiness,
+  });
+  const [checkout, setCheckout] = useState<CheckoutFlowState>(defaultCheckoutFlowState);
+  const [billingInterval, setBillingInterval] = useState<"monthly" | "yearly">("monthly");
+  const [subscriptionAction, setSubscriptionAction] = useState<SubscriptionActionState>(
+    defaultSubscriptionActionState,
+  );
+  const [auditExport, setAuditExport] = useState<AuditExportState>(defaultAuditExportState);
+
+  const workspace = data?.workspace;
+  const plan = data?.plan;
+  const billingSummary = data?.billing_summary;
+  const billingProviders = data?.billing_providers;
+  const subscription = data?.subscription;
+  const usage = data?.usage;
+  const members = data?.members ?? [];
+  const providerEntries = billingProviders?.providers ?? [];
+  const sessionProviderLabel = formatBillingProviderLabel(
+    checkout.session?.billing_provider ?? null,
+    providerEntries,
+  );
+  const currentBillingProvider = providerEntries.find((provider) => provider.is_current) ?? null;
+  const metrics = usage ? Object.entries(usage.metrics) : [];
+  const overLimitMetrics = metrics.filter(([, metric]) => metric.over_limit);
+  const canStartCheckout =
+    billingSummary?.action?.kind === "upgrade" &&
+    (billingSummary.action.availability === "ready" || billingSummary.action.availability === "staged");
+  const canScheduleCancellation =
+    Boolean(subscription) &&
+    !subscription?.cancel_at_period_end &&
+    !["cancelled", "paused"].includes(subscription?.status ?? "") &&
+    ((plan?.monthly_price_cents ?? 0) > 0 || plan?.tier === "paid");
+  const canResumeRenewal =
+    Boolean(subscription) &&
+    subscription?.cancel_at_period_end === true &&
+    !["cancelled", "paused"].includes(subscription?.status ?? "");
+  const isStripeWorkspace =
+    (subscription?.billing_provider ?? billingSummary?.provider ?? currentBillingProvider?.code ?? "") === "stripe";
+  const canOpenBillingPortal =
+    Boolean(subscription) && Boolean(currentBillingProvider?.supports_customer_portal);
+  const showLocalSubscriptionControls = !isStripeWorkspace && (canScheduleCancellation || canResumeRenewal);
+  const showSubscriptionControls = canOpenBillingPortal || showLocalSubscriptionControls;
+  const normalizedSource = normalizeSettingsSource(source);
+  const normalizedDeliveryContext = normalizeDeliveryContext(deliveryContext);
+  const normalizedRecentTrackKey = normalizeRecentTrackKey(recentTrackKey);
+  const normalizedRecentUpdateKind = normalizeRecentUpdateKind(recentUpdateKind);
+  const normalizedEvidenceCount =
+    typeof evidenceCount === "number" && Number.isFinite(evidenceCount) ? evidenceCount : null;
+  const handoffHrefArgs = {
+    source: normalizedSource,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    deliveryContext: normalizedDeliveryContext,
+    recentTrackKey: normalizedRecentTrackKey,
+    recentUpdateKind: normalizedRecentUpdateKind,
+    evidenceCount: normalizedEvidenceCount,
+    recentOwnerLabel,
+  } satisfies Omit<SettingsHrefArgs, "pathname" | "intent">;
+  const adminReturnHref = buildAdminReturnHref({
+    source: normalizedSource,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    recentTrackKey: normalizedRecentTrackKey,
+  });
+  const usageHref = buildSettingsHref({ pathname: "/usage", ...handoffHrefArgs });
+  const verificationHref = buildSettingsHref({ pathname: "/verification", ...handoffHrefArgs });
+  const goLiveHref = buildSettingsHref({ pathname: "/go-live", ...handoffHrefArgs });
+  const upgradeIntentHref = buildSettingsIntentHref("upgrade", handoffHrefArgs);
+  const billingActionHref = billingSummary?.action
+    ? buildSettingsHref({
+        pathname: billingSummary.action.href,
+        ...handoffHrefArgs,
+      })
+    : null;
+  const highlightBillingCard = intentMatchesAction(
+    highlightIntent,
+    billingActionHref ?? billingSummary?.action?.href,
+  );
+  const auditExportEnabled = plan?.features?.audit_export === true;
+  const ssoEnabledByPlan = plan?.features?.sso === true;
+  const ssoFeatureEnabled = ssoReadiness?.feature_enabled ?? ssoEnabledByPlan;
+  const ssoUpgradeHref =
+    (ssoReadiness?.upgrade_href
+      ? buildSettingsHref({
+          pathname: ssoReadiness.upgrade_href,
+          ...handoffHrefArgs,
+        })
+      : null) ??
+    (billingSummary?.action?.kind === "upgrade" ? billingActionHref : upgradeIntentHref) ??
+    upgradeIntentHref;
+  const dedicatedEnvironmentEnabledByPlan = plan?.features?.dedicated_environment === true;
+  const dedicatedEnvironmentFeatureEnabled =
+    dedicatedEnvironmentReadiness?.feature_enabled ?? dedicatedEnvironmentEnabledByPlan;
+  const dedicatedEnvironmentUpgradeHref =
+    (dedicatedEnvironmentReadiness?.upgrade_href
+      ? buildSettingsHref({
+          pathname: dedicatedEnvironmentReadiness.upgrade_href,
+          ...handoffHrefArgs,
+        })
+      : null) ??
+    (billingSummary?.action?.kind === "upgrade" ? billingActionHref : upgradeIntentHref) ??
+    upgradeIntentHref;
+  const ssoProtocols = ssoReadiness?.supported_protocols ?? ["oidc", "saml"];
+  const ssoNextSteps = ssoReadiness?.next_steps ?? [
+    "Upgrade to a plan with SSO support.",
+    "Choose OIDC or SAML as the connection protocol.",
+    "Configure identity provider metadata and domain mapping.",
+  ];
+  const dedicatedEnvironmentNextSteps = dedicatedEnvironmentReadiness?.next_steps ?? [
+    "Upgrade to a plan with dedicated environment support.",
+    "Confirm region and compliance boundaries for the target deployment.",
+    "Review network and access isolation requirements before provisioning.",
+  ];
+
+  const readinessCard =
+    normalizedSource === "admin-readiness"
+      ? {
+          title: "Admin readiness follow-up",
+          body: `This workspace is aligned with the Week 8 ${readinessFocusLabel(
+            week8Focus,
+          )} focus. Review billing posture, usage evidence, and feature gating before returning to the admin snapshot.`,
+        }
+      : null;
+  const attentionCard =
+    normalizedSource === "admin-attention"
+      ? {
+          title: "Admin queue billing follow-up",
+          body:
+            "You arrived here from the admin attention queue. Use this page as billing and feature-gating context, then continue manually into verification, usage, or the go-live drill before returning to the queue.",
+        }
+      : null;
+  const onboardingCard =
+    normalizedSource === "onboarding"
+      ? {
+          title: "Onboarding governance checkpoint",
+          body: `Finish the first demo by confirming billing, feature gating, and audit-export readiness so the Week 8 checklist can cite concrete evidence. This page captures the billing plan, the enrolled feature toggles, and the ability to download audit events before you head back to verification or the mock go-live drill.`,
+        }
+      : null;
+  const intentContextMap: Record<
+    "manage-plan" | "resolve-billing" | "upgrade",
+    {
+      title: string;
+      body: string;
+      actions: Array<{ label: string; href: string }>;
+      footnote: string;
+    }
+  > = {
+    "manage-plan": {
+      title: "Manage-plan billing intent",
+      body:
+        "You arrived with intent to inspect the plan binding. Confirm the upgrade readiness before returning to verification evidence or usage pressure to keep the Week 8 trace aligned.",
+      actions: [
+        { label: "Back to Week 8 checklist", href: verificationHref },
+        { label: "Review usage pressure", href: usageHref },
+      ],
+      footnote: "This intent-aware guidance is purely navigational; it keeps the plan workstream traceable without triggering automation or impersonation.",
+    },
+    "resolve-billing": {
+      title: "Resolve billing warning intent",
+      body:
+        "This path lands you in settings to resolve past-due or warning statuses. Finish the billing cleanup before returning to the Week 8 checkpoint or admin readiness focus.",
+      actions: [
+        { label: "Return to Week 8 checklist", href: verificationHref },
+        { label: "Return to admin readiness view", href: adminReturnHref },
+      ],
+      footnote: "These links restore the `admin-readiness` focus once manual resolution finishes; nothing is automated for you.",
+    },
+    upgrade: {
+      title: "Upgrade intent",
+      body:
+        "You landed here to complete the upgrade and gate the new features. Confirm audit export and feature toggles before continuing to the go-live drill or verification evidence.",
+      actions: [
+        { label: "Continue to go-live drill", href: goLiveHref },
+        { label: "Confirm usage evidence", href: usageHref },
+      ],
+      footnote: "The upgrade intent keeps the new feature gating decision in the same navigation context—no support or impersonation is happening.",
+    },
+  };
+  const intentCard = highlightIntent ? intentContextMap[highlightIntent] : null;
+  const showBillingFollowUpCard =
+    !intentCard && (normalizedSource || checkout.session || subscriptionAction.notice || auditExport.notice);
+  const billingFollowUpCard = showBillingFollowUpCard
+    ? {
+        title: normalizedSource === "onboarding" ? "Onboarding billing evidence" : "Billing evidence handoff",
+        body:
+          normalizedSource === "onboarding"
+            ? "Once the billing action (upgrade, checkout, or portal return) is ready, use this panel to capture notes and evidence before you navigate back to verification, usage, or the go-live drill."
+            : "Document the billing update, audit export, or portal interaction so the verification/go-live evidence panels can cite the same timeline and you can return to the admin readiness lean.",
+        actions:
+          normalizedSource === "onboarding"
+            ? [
+                { label: "Capture verification evidence", href: verificationHref },
+                { label: "Review usage pressure", href: usageHref },
+              ]
+            : [
+                { label: "Return to Week 8 checklist", href: verificationHref },
+                { label: "Continue to go-live drill", href: goLiveHref },
+              ],
+        footnote: "These navigation cues keep checkout and audit evidence linked to the same workspace; they do not automate or impersonate any role.",
+      }
+    : null;
+
+  useEffect(() => {
+    if (!initialCheckoutSessionId || checkout.session?.session_id === initialCheckoutSessionId) {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      setCheckout((current) => ({
+        ...current,
+        refreshing: true,
+        error: null,
+        notice: null,
+      }));
+      try {
+        const payload = await fetchBillingCheckoutSession(initialCheckoutSessionId);
+        const session = extractCheckoutSession(payload);
+        if (cancelled) {
+          return;
+        }
+        setCheckout((current) => ({
+          ...current,
+          refreshing: false,
+          session,
+          notice: session ? "Loaded checkout session from the current settings link." : current.notice,
+        }));
+        if (session) {
+          setBillingInterval(session.billing_interval);
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+        setCheckout((current) => ({
+          ...current,
+          refreshing: false,
+          error: error instanceof Error ? error.message : "Unable to load checkout session",
+        }));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [checkout.session?.session_id, initialCheckoutSessionId]);
+
+  async function createCheckoutSession(): Promise<void> {
+    if (!canStartCheckout || checkout.creating || checkout.completing || checkout.refreshing) {
+      return;
+    }
+
+    setCheckout((current) => ({
+      ...current,
+      creating: true,
+      error: null,
+      notice: null,
+    }));
+    try {
+      const payload = await createBillingCheckoutSession({
+        billing_interval: billingInterval,
+      });
+      const session = extractCheckoutSession(payload);
+      setCheckout((current) => ({
+        ...current,
+        creating: false,
+        session,
+        notice: session
+          ? "Checkout session prepared. Review details before completing the upgrade step."
+          : "Checkout request accepted. Refresh to fetch latest session details.",
+      }));
+      if (session?.billing_provider === "stripe" && session.checkout_url) {
+        window.location.assign(session.checkout_url);
+      }
+    } catch (error) {
+      setCheckout((current) => ({
+        ...current,
+        creating: false,
+        error: error instanceof Error ? error.message : "Unable to create checkout session",
+      }));
+    }
+  }
+
+  async function refreshCheckoutSession(): Promise<void> {
+    if (!checkout.session?.session_id || checkout.creating || checkout.completing || checkout.refreshing) {
+      return;
+    }
+
+    setCheckout((current) => ({
+      ...current,
+      refreshing: true,
+      error: null,
+      notice: null,
+    }));
+    try {
+      const payload = await fetchBillingCheckoutSession(checkout.session.session_id);
+      const session = extractCheckoutSession(payload);
+      setCheckout((current) => ({
+        ...current,
+        refreshing: false,
+        session: session ?? current.session,
+        notice: "Checkout session status refreshed.",
+      }));
+      if (session) {
+        setBillingInterval(session.billing_interval);
+      }
+    } catch (error) {
+      setCheckout((current) => ({
+        ...current,
+        refreshing: false,
+        error: error instanceof Error ? error.message : "Unable to refresh checkout session",
+      }));
+    }
+  }
+
+  async function completeCheckoutSession(): Promise<void> {
+    if (!checkout.session?.session_id || checkout.creating || checkout.completing || checkout.refreshing) {
+      return;
+    }
+
+    setCheckout((current) => ({
+      ...current,
+      completing: true,
+      error: null,
+      notice: null,
+    }));
+    try {
+      const payload = await completeBillingCheckoutSession(checkout.session.session_id);
+      const session = extractCheckoutSession(payload);
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-settings", workspaceSlug],
+      });
+      setCheckout((current) => ({
+        ...current,
+        completing: false,
+        session: session ?? current.session,
+        notice: "Checkout session marked completed. Workspace billing summary has been refreshed.",
+      }));
+    } catch (error) {
+      setCheckout((current) => ({
+        ...current,
+        completing: false,
+        error: error instanceof Error ? error.message : "Unable to complete checkout session",
+      }));
+    }
+  }
+
+  async function scheduleSubscriptionCancellation(): Promise<void> {
+    if (
+      !canScheduleCancellation ||
+      subscriptionAction.openingPortal ||
+      subscriptionAction.cancelling ||
+      subscriptionAction.resuming
+    ) {
+      return;
+    }
+
+    setSubscriptionAction({
+      openingPortal: false,
+      cancelling: true,
+      resuming: false,
+      error: null,
+      notice: null,
+    });
+
+    try {
+      await cancelBillingSubscription();
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-settings", workspaceSlug],
+      });
+      setSubscriptionAction({
+        openingPortal: false,
+        cancelling: false,
+        resuming: false,
+        error: null,
+        notice: "Subscription will now end at the close of the current billing period.",
+      });
+    } catch (error) {
+      setSubscriptionAction({
+        openingPortal: false,
+        cancelling: false,
+        resuming: false,
+        error: error instanceof Error ? error.message : "Unable to schedule cancellation",
+        notice: null,
+      });
+    }
+  }
+
+  async function resumeSubscriptionRenewal(): Promise<void> {
+    if (
+      !canResumeRenewal ||
+      subscriptionAction.openingPortal ||
+      subscriptionAction.cancelling ||
+      subscriptionAction.resuming
+    ) {
+      return;
+    }
+
+    setSubscriptionAction({
+      openingPortal: false,
+      cancelling: false,
+      resuming: true,
+      error: null,
+      notice: null,
+    });
+
+    try {
+      await resumeBillingSubscription();
+      await queryClient.invalidateQueries({
+        queryKey: ["workspace-settings", workspaceSlug],
+      });
+      setSubscriptionAction({
+        openingPortal: false,
+        cancelling: false,
+        resuming: false,
+        error: null,
+        notice: "Automatic renewal has been restored for this subscription.",
+      });
+    } catch (error) {
+      setSubscriptionAction({
+        openingPortal: false,
+        cancelling: false,
+        resuming: false,
+        error: error instanceof Error ? error.message : "Unable to resume subscription renewal",
+        notice: null,
+      });
+    }
+  }
+
+  async function openBillingPortal(): Promise<void> {
+    if (
+      !canOpenBillingPortal ||
+      subscriptionAction.openingPortal ||
+      subscriptionAction.cancelling ||
+      subscriptionAction.resuming
+    ) {
+      return;
+    }
+
+    setSubscriptionAction({
+      openingPortal: true,
+      cancelling: false,
+      resuming: false,
+      error: null,
+      notice: null,
+    });
+
+    try {
+      const session = await createBillingPortalSession({
+        return_url: window.location.href,
+      });
+      if (!session.portal_url) {
+        throw new Error("Billing provider did not return a portal URL");
+      }
+      window.location.assign(session.portal_url);
+    } catch (error) {
+      setSubscriptionAction({
+        openingPortal: false,
+        cancelling: false,
+        resuming: false,
+        error: error instanceof Error ? error.message : "Unable to open billing portal",
+        notice: null,
+      });
+    }
+  }
+
+  async function exportWorkspaceAudit(): Promise<void> {
+    if (auditExport.exporting) {
+      return;
+    }
+
+    setAuditExport({
+      exporting: true,
+      error: null,
+      notice: null,
+    });
+
+    try {
+      const download = await downloadWorkspaceAuditExport({
+        format: "jsonl",
+      });
+      const objectUrl = URL.createObjectURL(download.blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = download.filename;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(objectUrl);
+      setAuditExport({
+        exporting: false,
+        error: null,
+        notice: "Audit export downloaded. You can share it with compliance reviewers.",
+      });
+    } catch (error) {
+      setAuditExport({
+        exporting: false,
+        error: error instanceof Error ? error.message : "Unable to export audit events",
+        notice: null,
+      });
+    }
+  }
+
+  return (
+    <div className="grid gap-6 xl:grid-cols-2">
+      {readinessCard ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{readinessCard.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p className="text-muted">{readinessCard.body}</p>
+            <Link
+              href={adminReturnHref}
+              className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+            >
+              Return to admin readiness view
+            </Link>
+          </CardContent>
+        </Card>
+      ) : null}
+      {attentionCard ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{attentionCard.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted">{attentionCard.body}</p>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={verificationHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Continue to verification
+              </Link>
+              <Link
+                href={adminReturnHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Return to admin queue
+              </Link>
+            </div>
+            <p className="text-xs text-muted">
+              These links preserve the current admin queue navigation context only. They do not automate remediation,
+              open support tooling, or switch identity.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+      {onboardingCard ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>{onboardingCard.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted">{onboardingCard.body}</p>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={verificationHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Return to verification
+              </Link>
+              <Link
+                href={goLiveHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Continue with go-live drill prep
+              </Link>
+            </div>
+            <p className="text-xs text-muted">
+              These links only preserve the onboarding navigation context—they do not automate actions, open support
+              sessions, or impersonate another role.
+            </p>
+          </CardContent>
+        </Card>
+      ) : null}
+      <Card>
+        <CardHeader>
+          <CardTitle>Workspace</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          {isLoading ? <p className="text-muted">Loading workspace settings...</p> : null}
+          {isError ? <p className="text-muted">Showing fallback workspace context.</p> : null}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Display name</p>
+              <p className="mt-1 font-medium text-foreground">{workspace?.display_name ?? workspaceSlug}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Tenant</p>
+              <p className="mt-1 font-medium text-foreground">{workspace?.tenant_id ?? "tenant_demo"}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Workspace slug</p>
+              <p className="mt-1 font-medium text-foreground">{workspace?.slug ?? workspaceSlug}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Data region</p>
+              <p className="mt-1 font-medium text-foreground">{workspace?.data_region ?? "global"}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Plan and access</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant="strong">{plan?.display_name ?? "Free"}</Badge>
+            <Badge variant="default">{workspace?.membership.role ?? "workspace_owner"}</Badge>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Monthly price</p>
+              <p className="mt-1 font-medium text-foreground">{formatPrice(plan?.monthly_price_cents ?? 0)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Active members</p>
+              <p className="mt-1 font-medium text-foreground">{members.length}</p>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Plan limits</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {Object.entries(plan?.limits ?? {}).map(([key, value]) => (
+                <Badge key={key} variant="subtle">
+                  {key}: {String(value)}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Feature readiness</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant={ssoFeatureEnabled ? "strong" : "subtle"}>
+                Single sign-on {ssoFeatureEnabled ? "enabled" : "staged"}
+              </Badge>
+              <Badge variant={dedicatedEnvironmentFeatureEnabled ? "strong" : "subtle"}>
+                Dedicated environment {dedicatedEnvironmentFeatureEnabled ? "enabled" : "staged"}
+              </Badge>
+              <Badge variant={auditExportEnabled ? "strong" : "subtle"}>
+                Audit export {auditExportEnabled ? "enabled" : "staged"}
+              </Badge>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Enterprise capabilities are surfaced per workspace plan. Audit export is downloadable when enabled, and
+              the SSO and dedicated-environment sections below expose readiness when the current plan includes those features.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Single Sign-On</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={ssoFeatureEnabled ? "strong" : "subtle"}>
+              {ssoFeatureEnabled ? "Enabled on plan" : "Staged on current plan"}
+            </Badge>
+            <Badge variant="subtle">{formatFeatureStatusLabel(ssoReadiness?.status)}</Badge>
+            {isSsoLoading ? <Badge variant="subtle">Loading readiness...</Badge> : null}
+            {isSsoError ? <Badge variant="default">Unable to load live status</Badge> : null}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Connection mode</p>
+              <p className="mt-1 font-medium text-foreground">{ssoReadiness?.connection_mode ?? "workspace"}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Provider</p>
+              <p className="mt-1 font-medium text-foreground">{ssoReadiness?.provider_type ?? "Not configured"}</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Supported protocols</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {ssoProtocols.map((protocol) => (
+                <Badge key={protocol} variant="subtle">
+                  {formatSsoProtocolLabel(protocol)}
+                </Badge>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Readiness checklist</p>
+            <p className="mt-1 text-xs text-muted">
+              {ssoFeatureEnabled
+                ? "This slice ships a real plan-gated SSO readiness/config surface. Full sign-in enforcement is still staged until the runtime auth integration lands."
+                : "This workspace can preview SSO requirements here, but provider setup stays locked until the plan includes the feature."}
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
+              {ssoNextSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ul>
+          </div>
+
+          {!ssoFeatureEnabled ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Upgrade required</p>
+              <p className="mt-1 text-xs text-muted">
+                SSO configuration is available as a plan-gated enterprise surface. Upgrade this workspace to unlock
+                provider setup.
+              </p>
+              <div className="mt-3">
+                <Link
+                  href={ssoUpgradeHref}
+                  className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                >
+                  Upgrade plan
+                </Link>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Dedicated environment</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant={dedicatedEnvironmentFeatureEnabled ? "strong" : "subtle"}>
+              {dedicatedEnvironmentFeatureEnabled ? "Enabled on plan" : "Staged on current plan"}
+            </Badge>
+            <Badge variant="subtle">{formatFeatureStatusLabel(dedicatedEnvironmentReadiness?.status)}</Badge>
+            {isDedicatedEnvironmentLoading ? <Badge variant="subtle">Loading readiness...</Badge> : null}
+            {isDedicatedEnvironmentError ? <Badge variant="default">Unable to load live status</Badge> : null}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Deployment model</p>
+              <p className="mt-1 font-medium text-foreground">
+                {formatDedicatedDeploymentModelLabel(dedicatedEnvironmentReadiness?.deployment_model)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Target region</p>
+              <p className="mt-1 font-medium text-foreground">
+                {dedicatedEnvironmentReadiness?.target_region ?? "Not selected"}
+              </p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Isolation summary</p>
+            <p className="mt-1 text-xs text-muted">
+              {dedicatedEnvironmentReadiness?.isolation_summary ??
+                "Dedicated environment provisioning and isolation orchestration remain staged for this workspace."}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Readiness checklist</p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
+              {dedicatedEnvironmentNextSteps.map((step) => (
+                <li key={step}>{step}</li>
+              ))}
+            </ul>
+          </div>
+
+          {!dedicatedEnvironmentFeatureEnabled ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Upgrade required</p>
+              <p className="mt-1 text-xs text-muted">
+                Dedicated environment delivery is exposed as a plan-gated readiness surface in this slice. Upgrade to
+                unlock workspace-level provisioning intake.
+              </p>
+              <div className="mt-3">
+                <Link
+                  href={dedicatedEnvironmentUpgradeHref}
+                  className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                >
+                  Upgrade plan
+                </Link>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card className={highlightBillingCard ? "border-amber-300 shadow-[0_0_0_1px_rgba(245,158,11,0.35)]" : undefined}>
+        <CardHeader>
+          <CardTitle>Billing and subscription</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            <Badge variant={billingBadgeVariant(billingSummary?.status_tone ?? "neutral")}>
+              {billingSummary?.status_label ?? "Billing staged"}
+            </Badge>
+            <Badge variant="subtle">{billingSummary?.provider ?? "manual"}</Badge>
+            {subscription?.cancel_at_period_end ? <Badge variant="default">Ends at period close</Badge> : null}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Current plan billing</p>
+              <p className="mt-1 font-medium text-foreground">{formatPrice(plan?.monthly_price_cents ?? 0)}</p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Billing period</p>
+              <p className="mt-1 font-medium text-foreground">
+                {formatDate(billingSummary?.current_period_start)} to {formatDate(billingSummary?.current_period_end)}
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Subscription status</p>
+              <p className="mt-1 font-medium text-foreground">
+                {billingSummary?.status ?? subscription?.status ?? "manual_free"}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Billing provider</p>
+              <p className="mt-1 font-medium text-foreground">{billingSummary?.provider ?? subscription?.billing_provider ?? "manual"}</p>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Cancel at period end</p>
+            <p className="mt-1 font-medium text-foreground">
+              {subscription?.cancel_at_period_end ? "Enabled" : "Disabled"}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Status summary</p>
+            <p className="mt-1 font-medium text-foreground">{billingSummary?.description ?? "Billing summary pending."}</p>
+            <p className="mt-2 text-xs text-muted">
+              Self-serve enabled: {billingSummary?.self_serve_enabled ? "yes" : "staged next"}
+            </p>
+          </div>
+          {providerEntries.length > 0 ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Provider readiness</p>
+              <p className="mt-1 font-medium text-foreground">
+                Current provider: {currentBillingProvider?.display_name ?? billingProviders?.current_provider_code ?? billingSummary?.provider ?? "Not assigned"}
+              </p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {providerEntries.map((provider) => (
+                  <div key={provider.code} className="rounded-xl border border-border bg-card p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-foreground">{provider.display_name}</p>
+                      <Badge variant={provider.is_current ? "strong" : "subtle"}>{provider.status}</Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-muted">
+                      {provider.supports_checkout ? "Checkout ready" : "Checkout not enabled"} ·{" "}
+                      {provider.supports_subscription_cancel ? "Subscription controls available" : "Subscription controls staged"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted">
+                      {provider.supports_webhooks
+                        ? `Webhook path: ${provider.webhook_path ?? "configured internally"}`
+                        : "Webhook ingestion not enabled"}
+                    </p>
+                    {provider.notes.map((note) => (
+                      <p key={note} className="mt-1 text-xs text-muted">
+                        {note}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {billingSummary?.action ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Next billing action</p>
+              <p className="mt-1 font-medium text-foreground">{billingSummary.action.label}</p>
+              <p className="mt-2 text-xs text-muted">
+                {billingSummary.action.availability === "ready"
+                  ? "This subscription path is ready for self-serve checkout review in the console."
+                  : "This is a staged self-serve entry point for the next Week 7 checkout slice. It is intentionally not a live external payment flow yet."}
+              </p>
+              {canStartCheckout ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-muted">Billing interval</p>
+                  <div className="inline-flex rounded-full border border-border bg-card p-1">
+                    {(["monthly", "yearly"] as const).map((option) => {
+                      const isSelected = billingInterval === option;
+                      const intervalPrice = option === "yearly" ? plan?.yearly_price_cents : plan?.monthly_price_cents;
+                      return (
+                        <button
+                          key={option}
+                          type="button"
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                            isSelected ? "bg-foreground text-background" : "text-muted hover:text-foreground"
+                          }`}
+                          onClick={() => setBillingInterval(option)}
+                        >
+                          {option === "yearly" ? "Yearly" : "Monthly"} · {formatPrice(intervalPrice ?? 0)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {billingActionHref ? (
+                  <Link
+                    href={billingActionHref}
+                    className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-background"
+                  >
+                    Focus billing section
+                  </Link>
+                ) : null}
+                {canStartCheckout ? (
+                  <Button
+                    size="sm"
+                    onClick={() => void createCheckoutSession()}
+                    disabled={checkout.creating || checkout.completing || checkout.refreshing}
+                  >
+                    {checkout.creating ? "Preparing checkout..." : "Create checkout session"}
+                  </Button>
+                ) : null}
+              </div>
+              <p className="mt-2 text-xs text-muted">
+                After the checkout tracker is ready, revisit <Link href={usageHref}>usage pressure</Link>, update the{" "}
+                <Link href={verificationHref}>Week 8 checklist</Link>, and review the <Link href={goLiveHref}>go-live drill</Link> notes to keep the evidence path aligned before returning to the admin view; use the audit export control later on this panel for downloadable evidence.
+              </p>
+            </div>
+          ) : null}
+          {intentCard ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="font-medium text-foreground">{intentCard.title}</p>
+              <p className="mt-1 text-xs text-muted">{intentCard.body}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {intentCard.actions.map((action) => (
+                  <Link
+                    key={action.href}
+                    href={action.href}
+                    className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                  >
+                    {action.label}
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted">{intentCard.footnote}</p>
+            </div>
+          ) : null}
+          {billingFollowUpCard ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="font-medium text-foreground">{billingFollowUpCard.title}</p>
+              <p className="mt-1 text-xs text-muted">{billingFollowUpCard.body}</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {billingFollowUpCard.actions.map((action) => (
+                  <Link
+                    key={action.href}
+                    href={action.href}
+                    className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                  >
+                    {action.label}
+                  </Link>
+                ))}
+              </div>
+              <p className="mt-3 text-xs text-muted">{billingFollowUpCard.footnote}</p>
+            </div>
+          ) : null}
+          {checkout.error ? <p className="text-xs text-red-600">{checkout.error}</p> : null}
+          {checkout.notice ? <p className="text-xs text-emerald-700">{checkout.notice}</p> : null}
+          {subscriptionAction.error ? <p className="text-xs text-red-600">{subscriptionAction.error}</p> : null}
+          {subscriptionAction.notice ? (
+            <p className="text-xs text-emerald-700">{subscriptionAction.notice}</p>
+          ) : null}
+          {auditExport.error ? <p className="text-xs text-red-600">{auditExport.error}</p> : null}
+          {auditExport.notice ? <p className="text-xs text-emerald-700">{auditExport.notice}</p> : null}
+          {showSubscriptionControls ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Subscription controls</p>
+              <p className="mt-1 text-xs text-muted">
+                {canOpenBillingPortal
+                  ? "Open the billing provider portal to manage payment methods, invoices, and renewal settings."
+                  : "This Week 7 flow supports scheduling the current subscription to end at period close and removing that scheduled cancellation before the period ends."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {canOpenBillingPortal ? (
+                  <Button
+                    size="sm"
+                    onClick={() => void openBillingPortal()}
+                    disabled={subscriptionAction.openingPortal || subscriptionAction.cancelling || subscriptionAction.resuming}
+                  >
+                    {subscriptionAction.openingPortal ? "Opening..." : "Open billing portal"}
+                  </Button>
+                ) : null}
+                {showLocalSubscriptionControls && canScheduleCancellation ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void scheduleSubscriptionCancellation()}
+                    disabled={subscriptionAction.openingPortal || subscriptionAction.cancelling || subscriptionAction.resuming}
+                  >
+                    {subscriptionAction.cancelling ? "Scheduling..." : "End at period close"}
+                  </Button>
+                ) : null}
+                {showLocalSubscriptionControls && canResumeRenewal ? (
+                  <Button
+                    size="sm"
+                    onClick={() => void resumeSubscriptionRenewal()}
+                    disabled={subscriptionAction.openingPortal || subscriptionAction.cancelling || subscriptionAction.resuming}
+                  >
+                    {subscriptionAction.resuming ? "Resuming..." : "Resume renewal"}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Audit export</p>
+            <p className="mt-1 text-xs text-muted">
+              {auditExportEnabled
+                ? "Export workspace audit events as a download package for compliance review."
+                : "Audit export is staged for this workspace plan. Upgrade to unlock export downloads."}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => void exportWorkspaceAudit()}
+                disabled={!auditExportEnabled || auditExport.exporting}
+              >
+                {auditExport.exporting ? "Exporting..." : "Download audit export"}
+              </Button>
+              {!auditExportEnabled && billingSummary?.action?.kind === "upgrade" ? (
+                billingActionHref ? (
+                  <Link
+                    href={billingActionHref}
+                    className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                  >
+                    Upgrade plan
+                  </Link>
+                ) : null
+              ) : null}
+            </div>
+          </div>
+          {checkout.session ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Checkout review</p>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Session status</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{checkout.session.status}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Target plan</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {checkout.session.target_plan_display_name ??
+                      checkout.session.target_plan_code ??
+                      checkout.session.target_plan_id ??
+                      "Pro"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Billing interval</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {checkout.session.billing_interval === "yearly" ? "Yearly" : "Monthly"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3 sm:col-span-2">
+                  <p className="text-xs text-muted">Session expires at</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {formatDate(checkout.session.expires_at)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 text-xs text-muted space-y-1">
+                <p>Session owner: {sessionProviderLabel}.</p>
+                <p>
+                  {checkout.session.billing_provider === "stripe"
+                    ? "Stripe manages this session, so completion happens only after its checkout process finishes and the provider webhook confirms the upgrade."
+                    : "This checkout preview is part of the internal Week 7 flow; once the status is ready, use the button below to mark the upgrade complete."}
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => void refreshCheckoutSession()}
+                  disabled={checkout.creating || checkout.completing || checkout.refreshing}
+                >
+                  {checkout.refreshing ? "Refreshing..." : "Refresh session"}
+                </Button>
+                {isCheckoutReadyForCompletion(checkout.session.status, checkout.session.billing_provider) ? (
+                  <Button
+                    size="sm"
+                    onClick={() => void completeCheckoutSession()}
+                    disabled={checkout.creating || checkout.completing || checkout.refreshing}
+                  >
+                    {checkout.completing ? "Completing..." : "Complete upgrade step"}
+                  </Button>
+                ) : null}
+                {checkout.session.checkout_url ? (
+                  <Link
+                    href={checkout.session.checkout_url}
+                    className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                  >
+                    Open checkout link
+                  </Link>
+                ) : null}
+                {checkout.session.review_url ? (
+                  <Link
+                    href={checkout.session.review_url}
+                    className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                  >
+                    Open review link
+                  </Link>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card className="xl:col-span-2">
+        <CardHeader>
+          <CardTitle>Usage dashboard</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <p className="text-muted">
+            Current billing window: {formatDate(usage?.period_start)} to {formatDate(usage?.period_end)}
+          </p>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {metrics.length === 0 ? (
+              <p className="text-xs text-muted">No usage recorded for this period yet.</p>
+            ) : null}
+            {metrics.map(([key, metric]) => {
+              const fraction = formatUsageFraction(metric);
+              return (
+                <div key={key} className="rounded-2xl border border-border bg-background p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-muted">{key}</p>
+                    <Badge variant={metric.over_limit ? "default" : "subtle"}>
+                      {metric.over_limit ? "Over limit" : "Within plan"}
+                    </Badge>
+                  </div>
+                  <div className="mt-3 h-1.5 rounded-full bg-border">
+                    <div
+                      className="h-full rounded-full bg-foreground"
+                      style={{ width: `${fraction}%` }}
+                    />
+                  </div>
+                  <p className="mt-2 font-medium text-foreground">
+                    {formatMetricValue(key, metric.used)}
+                    {metric.limit !== null ? ` / ${formatMetricValue(key, metric.limit)}` : ""}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Remaining: {metric.remaining === null ? "unlimited" : formatMetricValue(key, metric.remaining)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          {overLimitMetrics.length > 0 ? (
+            <div className="rounded-2xl border border-red-400 bg-red-50/60 p-4 text-sm text-red-800">
+              <p className="font-medium">Over-limit warnings</p>
+              <ul className="mt-2 space-y-1 list-disc pl-5 text-xs">
+                {overLimitMetrics.map(([key, metric]) => (
+                <li key={key}>
+                  {key} used {formatMetricValue(key, metric.used)} /{" "}
+                  {metric.limit === null ? "unlimited" : formatMetricValue(key, metric.limit)}
+                  .
+                </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

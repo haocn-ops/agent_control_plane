@@ -10,6 +10,13 @@
 
 - [../README.md](/Users/zh/Documents/codeX/agent_control_plane/README.md)
 - [../agent_control_plane_dev_spec_zh.md](/Users/zh/Documents/codeX/agent_control_plane/agent_control_plane_dev_spec_zh.md)
+- [saas_plan_zh.md](./saas_plan_zh.md)
+- [saas_phase1_data_model_zh.md](./saas_phase1_data_model_zh.md)
+- [saas_week8_verification_checklist_zh.md](./saas_week8_verification_checklist_zh.md)（新增 delivery tracking panel、attention queue、返回 admin queue、organization drill-down、Week 8 readiness summary 以及 readiness drill-down 使用說明）
+  - `/admin` 的 recent delivery activity 卡片現在也可以直接把 `attention_workspace`、`surface`（以及選擇性的 `attention_organization`）帶回治理 jump，這仍然是 navigation-only 的 follow-up contract，沒有 impersonation 或支援自動化的承諾。
+  - `/admin` 的 action/attention queue 預設只顯示目前 focus 下的前幾筆 workspace，並提供 `Show more` 以在相同 snapshot 內展開更多項目，同樣只做導航、沒有 impersonation 或自動化支援。上方新增的 focus-state control bar 會把 surface、organization、workspace 與 returned follow-up 狀態用 chip 呈現，chip 上會顯示 filter 標籤、當前值，以及一個 per-chip 的「Clear」連結（存在時），同時當任一 focus 有值時也會顯示「Clear all focus」的 action，讓平台維運可以透過清除單一層級或回到更大治理視角的方式重置 focus，所有操作仍然只是導航提示，沒有實際 impersonation 或 automation 的行為。
+  - `/admin` 的 Week 8 readiness summary 卡片不但展示 onboarding baseline / credentials / demo run / billing warning / mock go-live-ready 五個 counts，還可以讓 operators 點擊該指標，把 Week 8 readiness follow-up 列表過濾到對應 workspace，並跳轉到 onboarding、settings、verification 或 go-live surface 繼續觀察。所有的 drill-down 均是 navigation-only 的 governance cues，沒有 impersonation 或 support automation。
+  - `/admin` 的 Week 8 readiness follow-up flows carry `source=admin-readiness`, `week8_focus`, and the organization/workspace context so the onboarding, settings, verification, or go-live pages can remind operators where they came from, surface a “Return to admin readiness view” link, and keep the same governance focus when returning to `/admin`. This keeps the whole loop shareable while remaining purely navigation context.
 
 ### 想對接 API 或補後端行為
 
@@ -22,6 +29,7 @@
 - [deployment_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/deployment_runbook_zh.md)
 - [github_actions_runtime_inventory_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/github_actions_runtime_inventory_zh.md)
 - [environment_config_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/environment_config_runbook_zh.md)
+- 其 billing portal 區段說明 customer portal 返回邏輯：API `return_url` > `STRIPE_CUSTOMER_PORTAL_RETURN_URL` > `BILLING_RETURN_BASE_URL`，這個返回路徑只在 portal 完成後觸發，與 webhook 或 checkout success 無關。
 - [access_ingress_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/access_ingress_runbook_zh.md)
 - [access_ingress_plan.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/access_ingress_plan.example.json)
 - [observability_alerting_baseline_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/observability_alerting_baseline_zh.md)
@@ -30,8 +38,10 @@
 - [incident_response_checklist_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/incident_response_checklist_zh.md)
 - [secret_rotation_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/secret_rotation_runbook_zh.md)
 - [ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md)
+- [saas_mock_go_live_drill_zh.md](./saas_mock_go_live_drill_zh.md)
 - [final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md)
 - [flow_failure_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/flow_failure_runbook_zh.md)
+- [saas_week8_verification_checklist_zh.md](./saas_week8_verification_checklist_zh.md)
 - 如果是要交接給下一位工程師，優先把 `post-deploy:verify` 當成驗收出口來看
 - 如果是新 tenant 接入，優先把 onboarding bundle 內的 `provision.sh`、`apply-request.sh`、`verify.sh` 和 `complete-handoff.sh` 當成最小接入與驗收出口來看
 - 如果是新 tenant 接入，先用 onboarding bundle 內的 `status.sh` 快速看摘要，再用 `submit-request.sh`、`apply-request.sh`、`verify.sh` 完成接入與驗收
@@ -59,6 +69,8 @@
 | [secret:rotation:bundle](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_secret_rotation_bundle.mjs) | 根據 rotation plan 生成 rotation-plan、checklist 與 rotate.sh |
 | [ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md) | 目前已落地環境、verify 證據與接手入口摘要 |
 | [final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md) | 本輪交付的完成項、部署結果、驗收證據與下一步建議 |
+| [saas_plan_zh.md](./saas_plan_zh.md) | SaaS 化產品定位、資料模型、技術演進與 8 週里程碑 |
+| [saas_phase1_data_model_zh.md](./saas_phase1_data_model_zh.md) | SaaS 第一階段資料模型、workspace 與 tenant 映射，以及 migration 0004 說明 |
 | [tenant_onboarding_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_onboarding_runbook_zh.md) | 新 tenant 接入步驟、tenant onboarding bundle 生成、驗收出口、回滾與交接資訊 |
 | [tenant_provisioning_request.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_provisioning_request.example.json) | 外部 provisioning / ticket / CMDB 可直接對接的 request manifest 範例 |
 | [implementation_status_matrix_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/implementation_status_matrix_zh.md) | 一頁查看已實作 / 佔位 / 保留欄位 / 驗證方式 |

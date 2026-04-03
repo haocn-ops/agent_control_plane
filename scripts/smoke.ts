@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import app from "../src/app.js";
 import { handleA2AMessageStream } from "../src/a2a/inbound.js";
@@ -9,6 +10,7 @@ import { listActivePolicies } from "../src/lib/db.js";
 import { createId, hashPayload, nowIso } from "../src/lib/ids.js";
 import type {
   A2AStatusSignal,
+  ApiKeyRow,
   ApprovalDecisionSignal,
   AuditEventEnvelope,
   OutboundA2ADispatchConfig,
@@ -17,6 +19,7 @@ import type {
   PolicyRow,
   RunCreateRequest,
   RunWorkflowParams,
+  ServiceAccountRow,
 } from "../src/types.js";
 
 const tenantId = "tenant_smoke";
@@ -191,6 +194,9 @@ async function main(): Promise<void> {
     assert.equal(limitedRunBlocked.json.error.details.limit, 1);
     assert.ok((limitedRunBlocked.json.error.details.retry_after_seconds as number) >= 1);
     env.RATE_LIMIT_RUNS_PER_MINUTE = "0";
+
+    await verifyWorkspaceApiKeyAuth();
+    await verifyWorkspaceApiKeyScopeCoverage();
 
     const listedToolProviders = await api("/api/v1/tool-providers");
     assert.equal(listedToolProviders.status, 200);
@@ -1425,13 +1431,28 @@ async function main(): Promise<void> {
   }
 }
 
+type ApiOptions = {
+  parseJson?: boolean;
+  readStreamPrefix?: boolean;
+  skipTenantHeader?: boolean;
+  overrideTenantHeader?: string | null;
+};
+
 async function api(
   path: string,
   init: RequestInit = {},
-  options: { parseJson?: boolean; readStreamPrefix?: boolean } = {},
+  options: ApiOptions = {},
 ): Promise<{ status: number; json: any; text: string; headers: Headers }> {
   const headers = new Headers(init.headers);
-  headers.set("x-tenant-id", tenantId);
+  if (options.overrideTenantHeader !== undefined) {
+    if (options.overrideTenantHeader === null) {
+      headers.delete("x-tenant-id");
+    } else {
+      headers.set("x-tenant-id", options.overrideTenantHeader);
+    }
+  } else if (!options.skipTenantHeader && !headers.has("x-tenant-id")) {
+    headers.set("x-tenant-id", tenantId);
+  }
   headers.set("content-type", "application/json");
 
   const response = await (app.fetch as (
@@ -1471,6 +1492,695 @@ async function api(
     text,
     headers: responseHeaders,
   };
+}
+
+async function computeSha256Hex(value: string): Promise<string> {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+async function seedWorkspaceServiceAccount(
+  env: Env,
+  workspaceId: string,
+  tenantId: string,
+  createdByUserId: string,
+  options: {
+    role?: ServiceAccountRow["role"];
+    description?: string;
+  } = {},
+): Promise<ServiceAccountRow> {
+  const now = nowIso();
+  const serviceAccountId = createId("svc");
+  const serviceAccountName = `smoke-service-account-${createId("name")}`;
+  const description = options.description ?? "Smoke test service account";
+  const role = options.role ?? "workspace_service";
+  await env.DB.prepare(
+    `INSERT INTO service_accounts (
+        service_account_id, workspace_id, tenant_id, name, description, role, status,
+        created_by_user_id, last_used_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, NULL, ?8, ?8)`,
+  )
+    .bind(
+      serviceAccountId,
+      workspaceId,
+      tenantId,
+      serviceAccountName,
+      description,
+      role,
+      createdByUserId,
+      now,
+    )
+    .run();
+
+  return {
+    service_account_id: serviceAccountId,
+    workspace_id: workspaceId,
+    tenant_id: tenantId,
+    name: serviceAccountName,
+    description,
+    role,
+    status: "active",
+    created_by_user_id: createdByUserId,
+    last_used_at: null,
+    created_at: now,
+    updated_at: now,
+  };
+}
+
+type SeedApiKeyOptions = {
+  status?: ApiKeyRow["status"];
+  revokedAt?: string | null;
+  expiresAt?: string | null;
+  scope?: string[];
+};
+
+async function seedWorkspaceApiKey(
+  env: Env,
+  workspaceId: string,
+  tenantId: string,
+  serviceAccountId: string | null,
+  createdByUserId: string | null,
+  options: SeedApiKeyOptions = {},
+): Promise<{ apiKeyId: string; plaintextKey: string }> {
+  const plaintextKey = `grk_smoke_${createId("key")}`;
+  const keyHash = await computeSha256Hex(plaintextKey);
+  const now = nowIso();
+  const expiresAt = options.expiresAt ?? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const revokedAt = options.revokedAt ?? null;
+  const status = options.status ?? "active";
+  const apiKeyId = createId("api");
+  const keyPrefix = plaintextKey.slice(0, 32);
+  const scopeJson = JSON.stringify(options.scope ?? []);
+  await env.DB.prepare(
+    `INSERT INTO api_keys (
+        api_key_id, workspace_id, tenant_id, service_account_id, key_prefix, key_hash,
+        scope_json, status, created_by_user_id, last_used_at, expires_at, revoked_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11, ?12, ?12)`,
+  )
+    .bind(
+      apiKeyId,
+      workspaceId,
+      tenantId,
+      serviceAccountId,
+      keyPrefix,
+      keyHash,
+      scopeJson,
+      status,
+      createdByUserId,
+      expiresAt,
+      revokedAt,
+      now,
+    )
+    .run();
+
+  return {
+    apiKeyId,
+    plaintextKey,
+  };
+}
+
+async function ensureSmokeWorkspaceContext(
+  env: Env,
+  tenantId: string,
+): Promise<{ workspace_id: string; tenant_id: string; user_id: string }> {
+  const existingWorkspace = await env.DB.prepare(
+    `SELECT workspace_id, tenant_id
+       FROM workspaces
+      WHERE tenant_id = ?1
+      LIMIT 1`,
+  )
+    .bind(tenantId)
+    .first<{ workspace_id: string; tenant_id: string }>();
+  const existingUser = await env.DB.prepare(
+    `SELECT user_id
+       FROM users
+      ORDER BY user_id
+      LIMIT 1`,
+  ).first<{ user_id: string }>();
+  if (existingWorkspace && existingUser) {
+    return {
+      workspace_id: existingWorkspace.workspace_id,
+      tenant_id: existingWorkspace.tenant_id,
+      user_id: existingUser.user_id,
+    };
+  }
+
+  const now = nowIso();
+  const organizationId = "org_smoke";
+  const userId = existingUser?.user_id ?? "usr_smoke";
+  const workspaceId = existingWorkspace?.workspace_id ?? "ws_smoke";
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO organizations (
+        organization_id, slug, display_name, status, created_by_user_id, created_at, updated_at
+      ) VALUES (?1, 'smoke-org', 'Smoke Org', 'active', ?2, ?3, ?3)`,
+  )
+    .bind(organizationId, userId, now)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO users (
+        user_id, email, email_normalized, display_name, auth_provider, auth_subject, status,
+        last_login_at, created_at, updated_at
+      ) VALUES (?1, 'smoke@example.com', 'smoke@example.com', 'Smoke User', 'passwordless',
+        'smoke@example.com', 'active', ?2, ?2, ?2)`,
+  )
+    .bind(userId, now)
+    .run();
+
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO workspaces (
+        workspace_id, organization_id, tenant_id, slug, display_name, status, plan_id, data_region,
+        created_by_user_id, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, 'smoke', 'Smoke Workspace', 'active', 'plan_free', 'global', ?4, ?5, ?5)`,
+  )
+    .bind(workspaceId, organizationId, tenantId, userId, now)
+    .run();
+
+  return {
+    workspace_id: workspaceId,
+    tenant_id: tenantId,
+    user_id: userId,
+  };
+}
+
+async function verifyWorkspaceApiKeyAuth(): Promise<void> {
+  const workspaceContext = await ensureSmokeWorkspaceContext(env, tenantId);
+
+  const serviceAccount = await seedWorkspaceServiceAccount(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    workspaceContext.user_id,
+  );
+  const activeKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    serviceAccount.service_account_id,
+    workspaceContext.user_id,
+  );
+
+  const runPayload = {
+    input: {
+      kind: "user_instruction",
+      text: "Run triggered by workspace API key",
+    },
+    policy_context: {
+      labels: ["api-key"],
+    },
+  };
+
+  const runResponse = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-run-1",
+        authorization: `Bearer ${activeKey.plaintextKey}`,
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(runResponse.status, 201);
+  const runId = runResponse.json.data.run_id as string;
+  const runRow = await env.DB.prepare(
+    `SELECT run_id, tenant_id
+       FROM runs
+      WHERE run_id = ?1`,
+  )
+    .bind(runId)
+    .first<{ run_id: string; tenant_id: string }>();
+  assert.equal(runRow?.tenant_id, workspaceContext.tenant_id);
+
+  const keyRecord = await env.DB.prepare(
+    `SELECT last_used_at FROM api_keys WHERE api_key_id = ?1`,
+  )
+    .bind(activeKey.apiKeyId)
+    .first<{ last_used_at: string | null }>();
+  assert.ok(keyRecord?.last_used_at, "API key should have recorded last_used_at");
+
+  const xApiKeyResponse = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-run-x-api-key",
+        "x-api-key": activeKey.plaintextKey,
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(xApiKeyResponse.status, 201);
+  const xApiKeyRunId = xApiKeyResponse.json.data.run_id as string;
+  const xApiKeyRunRow = await env.DB.prepare("SELECT tenant_id FROM runs WHERE run_id = ?1")
+    .bind(xApiKeyRunId)
+    .first<{ tenant_id: string }>();
+  assert.equal(xApiKeyRunRow?.tenant_id, workspaceContext.tenant_id);
+
+  const wrongTenantResponse = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-run-2",
+        authorization: `Bearer ${activeKey.plaintextKey}`,
+        "x-tenant-id": "wrong-tenant",
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(wrongTenantResponse.status, 201);
+  const wrongRunId = wrongTenantResponse.json.data.run_id as string;
+  const wrongRunRow = await env.DB.prepare("SELECT tenant_id FROM runs WHERE run_id = ?1")
+    .bind(wrongRunId)
+    .first<{ tenant_id: string }>();
+  assert.equal(wrongRunRow?.tenant_id, workspaceContext.tenant_id);
+
+  const revokedKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    serviceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      status: "revoked",
+      revokedAt: nowIso(),
+    },
+  );
+  const revokedResponse = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-revoked",
+        authorization: `Bearer ${revokedKey.plaintextKey}`,
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.ok(revokedResponse.status >= 400 && revokedResponse.status < 500);
+}
+
+async function verifyWorkspaceApiKeyScopeCoverage(): Promise<void> {
+  const workspaceContext = await ensureSmokeWorkspaceContext(env, tenantId);
+  const runtimeServiceAccount = await seedWorkspaceServiceAccount(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    workspaceContext.user_id,
+  );
+  const approvalServiceAccount = await seedWorkspaceServiceAccount(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    workspaceContext.user_id,
+    {
+      role: "legal_approver",
+      description: "Smoke approval service account",
+    },
+  );
+  const runsWriteKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    runtimeServiceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      scope: ["runs:write"],
+    },
+  );
+  const runsManageKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    runtimeServiceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      scope: ["runs:manage"],
+    },
+  );
+  const approvalsWriteKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    approvalServiceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      scope: ["approvals:write"],
+    },
+  );
+  const a2aWriteKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    runtimeServiceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      scope: ["a2a:write"],
+    },
+  );
+  const mcpCallKey = await seedWorkspaceApiKey(
+    env,
+    workspaceContext.workspace_id,
+    workspaceContext.tenant_id,
+    runtimeServiceAccount.service_account_id,
+    workspaceContext.user_id,
+    {
+      scope: ["mcp:call"],
+    },
+  );
+
+  const runPayload = {
+    input: {
+      kind: "user_instruction",
+      text: "Scope coverage smoke run for workspace API key",
+    },
+    policy_context: {
+      labels: ["api-key-scope"],
+    },
+  };
+
+  const allowedRun = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-scope-allowed",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(allowedRun.status, 201);
+  const allowedRunId = allowedRun.json.data.run_id as string;
+
+  const deniedRun = await api(
+    "/api/v1/runs",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-scope-denied",
+        authorization: `Bearer ${runsManageKey.plaintextKey}`,
+      },
+      body: JSON.stringify(runPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(deniedRun, ["runs:write"]);
+
+  const completedRun = await waitForRunStatus(allowedRunId, "completed");
+
+  const replayAllowed = await api(
+    `/api/v1/runs/${allowedRunId}/replay`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-replay-allowed",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify({
+        mode: "from_input",
+        reason: "scope coverage replay allow",
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(replayAllowed.status, 201);
+  assert.equal(replayAllowed.json.data.replay_source_run_id, allowedRunId);
+
+  const replayDenied = await api(
+    `/api/v1/runs/${allowedRunId}/replay`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-replay-denied",
+        authorization: `Bearer ${runsManageKey.plaintextKey}`,
+      },
+      body: JSON.stringify({
+        mode: "from_step",
+        from_step_id: completedRun.current_step_id,
+        reason: "scope coverage replay deny",
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(replayDenied, ["runs:write"]);
+
+  const cancelCandidate = await api("/api/v1/runs", {
+    method: "POST",
+    headers: {
+      "idempotency-key": "smoke-api-key-run-cancel-candidate",
+    },
+    body: JSON.stringify({
+      input: {
+        kind: "user_instruction",
+        text: "Create a pending approval run for API key cancel scope coverage",
+      },
+      policy_context: {
+        labels: ["external-send"],
+      },
+    }),
+  });
+  assert.equal(cancelCandidate.status, 201);
+  const cancelRunId = cancelCandidate.json.data.run_id as string;
+  const cancelWaiting = await waitForRunStatus(cancelRunId, "waiting_approval");
+  assert.ok(cancelWaiting.pending_approval_id);
+
+  const cancelDenied = await api(
+    `/api/v1/runs/${cancelRunId}:cancel`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-run-cancel-denied",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(cancelDenied, ["runs:manage"]);
+
+  const cancelAllowed = await api(
+    `/api/v1/runs/${cancelRunId}:cancel`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-run-cancel-allowed",
+        authorization: `Bearer ${runsManageKey.plaintextKey}`,
+      },
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(cancelAllowed.status, 200);
+  const cancelledRun = await waitForRunStatus(cancelRunId, "cancelled");
+  assert.equal(cancelledRun.status, "cancelled");
+
+  const approvalCandidate = await api("/api/v1/runs", {
+    method: "POST",
+    headers: {
+      "idempotency-key": "smoke-api-key-approval-candidate",
+    },
+    body: JSON.stringify({
+      input: {
+        kind: "user_instruction",
+        text: "Create a pending approval for API key approval scope coverage",
+      },
+      policy_context: {
+        labels: ["external-send"],
+      },
+    }),
+  });
+  assert.equal(approvalCandidate.status, 201);
+  const approvalRunId = approvalCandidate.json.data.run_id as string;
+  const approvalWaiting = await waitForRunStatus(approvalRunId, "waiting_approval");
+  const approvalId = approvalWaiting.pending_approval_id as string;
+  assert.ok(approvalId);
+
+  const approvalDenied = await api(
+    `/api/v1/approvals/${approvalId}/decision`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-approval-denied",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify({
+        decision: "approved",
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(approvalDenied, ["approvals:write"]);
+
+  const approvalAllowed = await api(
+    `/api/v1/approvals/${approvalId}/decision`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-approval-allowed",
+        authorization: `Bearer ${approvalsWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify({
+        decision: "approved",
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(approvalAllowed.status, 200);
+
+  const inboundPayload = {
+    task_id: `remote-task-scope-${createId("task")}`,
+    message_id: `remote-msg-scope-${createId("msg")}`,
+    sender: {
+      agent_id: "agent_remote_scope_test",
+    },
+    target: {
+      agent_id: "agent_control_plane",
+    },
+    content: {
+      type: "text",
+      text: "Scope coverage inbound message",
+    },
+    metadata: {
+      remote_endpoint: "https://remote.example.test/a2a/message:send",
+    },
+  };
+
+  const a2aDenied = await api(
+    "/api/v1/a2a/message:send",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-a2a-denied",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify(inboundPayload),
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(a2aDenied, ["a2a:write"]);
+
+  const a2aAllowed = await api(
+    "/api/v1/a2a/message:send",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-a2a-allowed",
+        authorization: `Bearer ${a2aWriteKey.plaintextKey}`,
+      },
+      body: JSON.stringify({
+        ...inboundPayload,
+        task_id: `remote-task-scope-${createId("task")}`,
+        message_id: `remote-msg-scope-${createId("msg")}`,
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(a2aAllowed.status, 202);
+
+  const outboundCandidate = await createApprovedOutboundRun({
+    key: "smoke-api-key-a2a-cancel-candidate",
+    text: "Create outbound task for API key a2a cancel scope coverage",
+  });
+  const outboundTask = await findOutboundTask(outboundCandidate.runId);
+
+  const a2aCancelDenied = await api(
+    `/api/v1/a2a/tasks/${outboundTask.task_id}:cancel`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-a2a-cancel-denied",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+      },
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(a2aCancelDenied, ["a2a:write"]);
+
+  const a2aCancelAllowed = await api(
+    `/api/v1/a2a/tasks/${outboundTask.task_id}:cancel`,
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-a2a-cancel-allowed",
+        authorization: `Bearer ${a2aWriteKey.plaintextKey}`,
+      },
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(a2aCancelAllowed.status, 200);
+
+  const mcpDenied = await api(
+    "/api/v1/mcp/tp_email",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-mcp-denied",
+        authorization: `Bearer ${runsWriteKey.plaintextKey}`,
+        "x-run-id": allowedRunId,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "rpc-scope-denied",
+        method: "tools/call",
+        params: {
+          name: "send_email",
+          arguments: {
+            to: ["vendor@example.com"],
+            subject: "Scope denied check",
+            body: "blocked by scope",
+          },
+        },
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assertWorkspaceApiKeyScopeDenied(mcpDenied, ["mcp:call"]);
+
+  const mcpAllowed = await api(
+    "/api/v1/mcp/tp_email",
+    {
+      method: "POST",
+      headers: {
+        "idempotency-key": "smoke-api-key-mcp-allowed",
+        authorization: `Bearer ${mcpCallKey.plaintextKey}`,
+        "x-run-id": allowedRunId,
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "rpc-scope-allowed",
+        method: "tools/call",
+        params: {
+          name: "send_email",
+          arguments: {
+            to: ["vendor@example.com"],
+            subject: "Scope allowed check",
+            body: "requires approval",
+          },
+        },
+      }),
+    },
+    { skipTenantHeader: true },
+  );
+  assert.equal(mcpAllowed.status, 423);
+  assert.equal(mcpAllowed.json.error.code, "approval_required");
+}
+
+function assertWorkspaceApiKeyScopeDenied(
+  response: { status: number; json: any },
+  requiredScopes: string[],
+): void {
+  assert.equal(response.status, 403);
+  assert.equal(
+    response.json.error.code,
+    "workspace_api_key_scope_denied",
+    "expected workspace API key scope enforcement error code",
+  );
+  assert.deepEqual(response.json.error.details.required_scopes, requiredScopes);
 }
 
 function parseSseEvents(text: string): Array<{ event: string; data: string; id?: string }> {

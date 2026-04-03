@@ -113,6 +113,22 @@ export async function listRunAuditEvents(
   };
 }
 
+export async function listTenantAuditEvents(
+  env: Env,
+  tenantId: string,
+): Promise<AuditEventRow[]> {
+  const result = await env.DB.prepare(
+    `SELECT event_id, tenant_id, run_id, step_id, trace_id, event_type, actor_type, actor_ref, payload_json, created_at
+       FROM audit_events
+      WHERE tenant_id = ?1
+      ORDER BY created_at ASC, event_id ASC`,
+  )
+    .bind(tenantId)
+    .run();
+
+  return (result.results ?? []) as unknown as AuditEventRow[];
+}
+
 function encodeEventCursor(offset: number): string {
   return encodeURIComponent(JSON.stringify({ offset }));
 }
