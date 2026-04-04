@@ -5,16 +5,6 @@ import { Input } from "@/components/ui/input";
 import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
-function formatContextSourceLabel(source: "metadata" | "env-fallback" | "preview-fallback"): string {
-  if (source === "metadata") {
-    return "SaaS metadata";
-  }
-  if (source === "env-fallback") {
-    return "Environment fallback";
-  }
-  return "Preview fallback";
-}
-
 export async function Topbar() {
   const workspaceContext = await resolveWorkspaceContextForServer();
   const subjectLabel =
@@ -22,7 +12,7 @@ export async function Topbar() {
     workspaceContext.session_user?.auth_subject ??
     workspaceContext.workspace.subject_id ??
     "anonymous";
-  const sourceLabel = formatContextSourceLabel(workspaceContext.source);
+  const sourceDetail = workspaceContext.source_detail;
   const workspaceCount = workspaceContext.available_workspaces.length;
   const authProvider = workspaceContext.session_user?.auth_provider ?? "local";
   const rolesLabel =
@@ -67,7 +57,10 @@ export async function Topbar() {
         <Badge variant="subtle">session: {subjectLabel}</Badge>
         <Badge variant="subtle">provider: {authProvider}</Badge>
         <Badge variant="subtle">roles: {rolesLabel}</Badge>
-        <Badge variant="subtle">context: {sourceLabel}</Badge>
+        <Badge variant={sourceDetail.is_fallback ? "default" : "subtle"}>
+          context: {sourceDetail.label}
+        </Badge>
+        {sourceDetail.warning ? <Badge variant="default">context warning: non-production fallback</Badge> : null}
         <Badge variant="subtle">workspaces: {workspaceCount}</Badge>
         <Badge variant="subtle">tenant: {workspaceContext.workspace.tenant_id}</Badge>
       </div>

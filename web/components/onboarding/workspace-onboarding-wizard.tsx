@@ -10,7 +10,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { ControlPlaneWorkspaceBootstrapResult } from "@/lib/control-plane-types";
+import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
+import type { ControlPlaneWorkspaceBootstrapResult, ControlPlaneWorkspaceOnboardingState } from "@/lib/control-plane-types";
 import {
   bootstrapWorkspace,
   createWorkspace,
@@ -33,10 +34,24 @@ type WorkspaceContextSource = "metadata" | "env-fallback" | "preview-fallback";
 type WorkspaceContextResponse = {
   data?: {
     source?: WorkspaceContextSource;
+    source_detail?: {
+      label?: string;
+      is_fallback?: boolean;
+      local_only?: boolean;
+      warning?: string | null;
+    };
   };
 };
 
-async function fetchWorkspaceContextSource(): Promise<WorkspaceContextSource | null> {
+type WorkspaceContextSourceState = {
+  source: WorkspaceContextSource;
+  label: string;
+  isFallback: boolean;
+  localOnly: boolean;
+  warning: string | null;
+};
+
+async function fetchWorkspaceContextSource(): Promise<WorkspaceContextSourceState | null> {
   try {
     const response = await fetch("/api/workspace-context", {
       headers: {
@@ -49,12 +64,43 @@ async function fetchWorkspaceContextSource(): Promise<WorkspaceContextSource | n
     }
     const payload = (await response.json()) as WorkspaceContextResponse;
     const source = payload.data?.source;
-    if (source === "metadata" || source === "env-fallback" || source === "preview-fallback") {
-      return source;
+    if (source !== "metadata" && source !== "env-fallback" && source !== "preview-fallback") {
+      return null;
     }
-    return null;
+    const detail = payload.data?.source_detail;
+    return {
+      source,
+      label:
+        typeof detail?.label === "string" && detail.label.trim() !== ""
+          ? detail.label.trim()
+          : source,
+      isFallback: detail?.is_fallback === true || source !== "metadata",
+      localOnly: detail?.local_only === true,
+      warning: typeof detail?.warning === "string" && detail.warning.trim() !== "" ? detail.warning.trim() : null,
+    };
   } catch {
     return null;
+  }
+}
+
+async function selectWorkspaceContext(workspace: {
+  workspace_id: string;
+  slug: string;
+}): Promise<void> {
+  try {
+    await fetch("/api/workspace-context", {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace_id: workspace.workspace_id,
+        workspace_slug: workspace.slug,
+      }),
+    });
+  } catch {
+    // Keep the onboarding flow resilient even if the context switch probe fails.
   }
 }
 
@@ -72,48 +118,218 @@ function getActionableErrorMessage(error: unknown, fallback: string): string {
 
 type OnboardingSource = "admin-attention" | "admin-readiness" | "onboarding";
 
-function buildOnboardingHref(args: {
-  pathname: string;
-  source?: OnboardingSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: string | null;
-  recentTrackKey?: string | null;
-  recentUpdateKind?: string | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-}): string {
-  const [basePath, rawQuery] = args.pathname.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  if (args.source) {
-    searchParams.set("source", args.source);
+type OnboardingSurface =
+  | "onboarding"
+  | "members"
+  | "service_accounts"
+  | "service-accounts"
+  | "api_keys"
+  | "api-keys"
+  | "playground"
+  | "verification"
+  | "usage"
+  | "settings"
+  | "go_live"
+  | "go-live";
+
+type OnboardingGuide = {
+  surface: OnboardingSurface;
+  label: string;
+  reason: string;
+};
+
+type OnboardingBlocker = NonNullable<ControlPlaneWorkspaceOnboardingState["blockers"]>[number];
+
+type RecoveryLane = {
+  title: string;
+  body: string;
+  primaryLabel: string;
+  primarySurface: OnboardingSurface;
+  secondaryLabel: string;
+  secondarySurface: OnboardingSurface;
+};
+
+function toSurfacePath(surface: OnboardingSurface): string {
+  if (surface === "service_accounts" || surface === "service-accounts") {
+    return "/service-accounts";
   }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
+  if (surface === "api_keys" || surface === "api-keys") {
+    return "/api-keys";
   }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
+  if (surface === "verification") {
+    return "/verification?surface=verification";
   }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
+  if (surface === "go_live" || surface === "go-live") {
+    return "/go-live?surface=go_live";
   }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
+  return `/${surface}`;
+}
+
+function normalizeBlockerSurface(surface?: OnboardingBlocker["surface"] | null): OnboardingSurface {
+  if (!surface) {
+    return "onboarding";
   }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
+  return surface;
+}
+
+function getGuideFromState(onboardingState: ControlPlaneWorkspaceOnboardingState | null): OnboardingGuide {
+  if (onboardingState?.recommended_next_surface) {
+    return {
+      surface: onboardingState.recommended_next_surface,
+      label: onboardingState.recommended_next_action ?? "Continue onboarding",
+      reason:
+        onboardingState.recommended_next_reason ??
+        "This next surface is recommended by the current onboarding state.",
+    };
   }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
+
+  if (onboardingState?.checklist.baseline_ready !== true) {
+    return {
+      surface: "onboarding",
+      label: "Bootstrap baseline",
+      reason: "Baseline providers and policies must be ready before credentials and first run.",
+    };
   }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
+  if (onboardingState?.checklist.service_account_created !== true) {
+    return {
+      surface: "service_accounts",
+      label: "Create a service account",
+      reason: "Service account is still missing for the first controlled run.",
+    };
   }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
+  if (onboardingState?.checklist.api_key_created !== true) {
+    return {
+      surface: "api_keys",
+      label: "Create an API key",
+      reason: "A `runs:write` API key is required before Playground demo run.",
+    };
   }
-  return `${basePath}?${searchParams.toString()}`;
+  if (onboardingState?.checklist.demo_run_created !== true) {
+    return {
+      surface: "playground",
+      label: "Run first demo in Playground",
+      reason: "Credentials are ready; run a first real trace to continue onboarding.",
+    };
+  }
+  if (onboardingState?.checklist.demo_run_succeeded !== true) {
+    return {
+      surface: "playground",
+      label: "Confirm demo completion",
+      reason: "A demo run exists but has not succeeded yet.",
+    };
+  }
+  return {
+    surface: "verification",
+    label: "Capture verification evidence",
+    reason: "Onboarding demo succeeded. Capture evidence before go-live rehearsal.",
+  };
+}
+
+function getOnboardingBlockers(onboardingState: ControlPlaneWorkspaceOnboardingState | null): string[] {
+  if (onboardingState?.blockers && onboardingState.blockers.length > 0) {
+    return onboardingState.blockers.map((item) => item.message);
+  }
+
+  const blockers: string[] = [];
+  if (!onboardingState?.checklist.workspace_created) {
+    blockers.push("Workspace is not created in a persistent SaaS context yet.");
+  }
+  if (!onboardingState?.checklist.baseline_ready) {
+    blockers.push("Baseline providers and policies are not bootstrapped.");
+  }
+  if (!onboardingState?.checklist.service_account_created) {
+    blockers.push("Service account is missing.");
+  }
+  if (!onboardingState?.checklist.api_key_created) {
+    blockers.push("API key is missing.");
+  }
+  if (onboardingState?.checklist.demo_run_created && !onboardingState?.checklist.demo_run_succeeded) {
+    blockers.push("Demo run exists but has not succeeded yet.");
+  }
+  return blockers;
+}
+
+function getRecoveryLane(args: {
+  primaryBlockingIssue: OnboardingBlocker | null;
+  primaryWarningIssue: OnboardingBlocker | null;
+  latestDemoRunHint: ControlPlaneWorkspaceOnboardingState["latest_demo_run_hint"] | null;
+  onboardingGuide: OnboardingGuide;
+  onboardingState: ControlPlaneWorkspaceOnboardingState | null;
+}): RecoveryLane {
+  if (args.primaryBlockingIssue) {
+    return {
+      title: "Resolve the primary blocker",
+      body: args.primaryBlockingIssue.message,
+      primaryLabel:
+        normalizeBlockerSurface(args.primaryBlockingIssue.surface) === "playground"
+          ? "Retry the demo lane"
+          : "Open the blocking surface",
+      primarySurface: normalizeBlockerSurface(args.primaryBlockingIssue.surface),
+      secondaryLabel: "Review verification evidence path",
+      secondarySurface: "verification",
+    };
+  }
+
+  if (args.latestDemoRunHint?.needs_attention) {
+    return {
+      title: args.latestDemoRunHint.is_terminal ? "Recover the first demo run" : "Monitor the first demo run",
+      body:
+        args.latestDemoRunHint.suggested_action ??
+        "Stay on the demo lane until the run is healthy, then continue into verification evidence capture.",
+      primaryLabel: args.latestDemoRunHint.is_terminal ? "Retry in Playground" : "Inspect Playground status",
+      primarySurface: "playground",
+      secondaryLabel: "Review verification checklist",
+      secondarySurface: "verification",
+    };
+  }
+
+  if (args.primaryWarningIssue) {
+    return {
+      title: "Close the remaining readiness warning",
+      body: args.primaryWarningIssue.message,
+      primaryLabel: "Open the warning surface",
+      primarySurface: normalizeBlockerSurface(args.primaryWarningIssue.surface),
+      secondaryLabel: "Review rollback prep in Settings",
+      secondarySurface: "settings",
+    };
+  }
+
+  if (args.onboardingState?.checklist.demo_run_succeeded) {
+    if (args.onboardingState.delivery_guidance?.verification_status !== "complete") {
+      return {
+        title: "Capture first-demo evidence",
+        body:
+          args.onboardingState.delivery_guidance?.summary ??
+          "Demo succeeded. Capture the trace and evidence before moving further down the launch lane.",
+        primaryLabel: "Open verification evidence lane",
+        primarySurface: "verification",
+        secondaryLabel: "Review rollback prep in Settings",
+        secondarySurface: "settings",
+      };
+    }
+
+    if (args.onboardingState.delivery_guidance?.go_live_status !== "complete") {
+      return {
+        title: "Advance into go-live rehearsal",
+        body:
+          args.onboardingState.delivery_guidance?.summary ??
+          "Verification is complete. Rehearse go-live and assign rollback ownership before cutover.",
+        primaryLabel: "Open go-live drill",
+        primarySurface: "go-live",
+        secondaryLabel: "Review rollback prep in Settings",
+        secondarySurface: "settings",
+      };
+    }
+  }
+
+  return {
+    title: "Follow the guided onboarding lane",
+    body: args.onboardingGuide.reason,
+    primaryLabel: args.onboardingGuide.label,
+    primarySurface: args.onboardingGuide.surface,
+    secondaryLabel: "Review rollback prep in Settings",
+    secondarySurface: "settings",
+  };
 }
 
 export function WorkspaceOnboardingWizard({
@@ -174,6 +390,38 @@ export function WorkspaceOnboardingWizard({
   const onboardingState = workspaceQuery.data?.onboarding ?? null;
   const bootstrapSummary = bootstrapResult?.summary ?? onboardingState?.summary ?? null;
   const nextActions = bootstrapResult?.next_actions ?? onboardingState?.next_actions ?? [];
+  const onboardingGuide = getGuideFromState(onboardingState);
+  const onboardingBlockers = getOnboardingBlockers(onboardingState);
+  const blockers: Array<{
+    code: string;
+    severity: "blocking" | "warning";
+    message: string;
+    surface: OnboardingSurface | null;
+    retryable?: boolean;
+  }> = (onboardingState?.blockers ?? []).map((item) => ({
+    code: item.code,
+    severity: item.severity === "warning" ? "warning" : "blocking",
+    message: item.message,
+    surface: item.surface ?? null,
+    retryable: item.retryable,
+  }));
+  const primaryBlockingIssue = blockers.find((item) => item.severity === "blocking") ?? null;
+  const primaryWarningIssue = blockers.find((item) => item.severity === "warning") ?? null;
+  const recommendedNext: {
+    surface: OnboardingSurface;
+    action: string;
+    reason: string;
+  } = onboardingState?.recommended_next
+    ? {
+        surface: onboardingState.recommended_next.surface,
+        action: onboardingState.recommended_next.action,
+        reason: onboardingState.recommended_next.reason,
+      }
+    : {
+        surface: onboardingGuide.surface,
+        action: onboardingGuide.label,
+        reason: onboardingGuide.reason,
+      };
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -203,17 +451,7 @@ export function WorkspaceOnboardingWizard({
       setCreatedWorkspace(nextWorkspace);
       setBootstrapResult(null);
 
-      await fetch("/api/workspace-context", {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          workspace_id: nextWorkspace.workspace_id,
-          workspace_slug: nextWorkspace.slug,
-        }),
-      });
+      await selectWorkspaceContext(nextWorkspace);
 
       await queryClient.invalidateQueries();
       router.refresh();
@@ -242,6 +480,15 @@ export function WorkspaceOnboardingWizard({
   const stepThreeReady = stepTwoComplete && serviceAccountReady && apiKeyReady;
   const stepThreeComplete = onboardingState?.checklist.demo_run_succeeded === true;
   const latestDemoRun = onboardingState?.latest_demo_run ?? null;
+  const latestDemoRunHint = onboardingState?.latest_demo_run_hint ?? null;
+  const deliveryGuidance = onboardingState?.delivery_guidance ?? null;
+  const recoveryLane = getRecoveryLane({
+    primaryBlockingIssue,
+    primaryWarningIssue,
+    latestDemoRunHint,
+    onboardingGuide,
+    onboardingState,
+  });
   const firstDemoStatusText = stepThreeComplete
     ? "First demo run succeeded"
     : onboardingState?.checklist.demo_run_created
@@ -260,7 +507,7 @@ export function WorkspaceOnboardingWizard({
     source === "admin-attention" || source === "admin-readiness" || source === "onboarding"
       ? source
       : "onboarding";
-  const handoffHrefArgs: Omit<Parameters<typeof buildOnboardingHref>[0], "pathname"> = {
+  const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>[0], "pathname"> = {
     source: normalizedSource,
     week8Focus,
     attentionWorkspace,
@@ -271,12 +518,28 @@ export function WorkspaceOnboardingWizard({
     evidenceCount,
     recentOwnerLabel,
   };
+  const onboardingGuideHref = buildVerificationChecklistHandoffHref({
+    pathname: toSurfacePath(onboardingGuide.surface),
+    ...handoffHrefArgs,
+  });
+  const recommendedNextHref = buildVerificationChecklistHandoffHref({
+    pathname: toSurfacePath(recommendedNext.surface),
+    ...handoffHrefArgs,
+  });
+  const verificationChecklistHref = buildVerificationChecklistHandoffHref({
+    pathname: "/verification?surface=verification",
+    ...handoffHrefArgs,
+  });
+  const goLiveDrillHref = buildVerificationChecklistHandoffHref({
+    pathname: "/go-live?surface=go_live",
+    ...handoffHrefArgs,
+  });
+  const expandedNextActions = [...nextActions.map((action) => action)];
   const contextSource = contextSourceQuery.data;
-  const showPreviewContextNotice = contextSource === "preview-fallback" || contextSource === "env-fallback";
+  const showContextNotice = contextSource?.isFallback === true;
   const contextNoticeBody =
-    contextSource === "preview-fallback"
-      ? "Workspace context is currently coming from preview fallback data. This is useful for UI validation, but values may not reflect a real SaaS membership/session."
-      : "Workspace context is currently coming from environment fallback values. This can be valid for local/operator flows, but not all data is session-derived from SaaS metadata yet.";
+    contextSource?.warning ??
+    "Workspace context is running in fallback mode. Treat this as local/demo state instead of production identity state.";
   const createErrorMessage = createMutation.isError
     ? getActionableErrorMessage(
         createMutation.error,
@@ -298,16 +561,24 @@ export function WorkspaceOnboardingWizard({
         description="Create a workspace, seed the baseline provider and policy bundle, then track the first operational actions until the first demo flow is ready."
         badge={<Badge variant="strong">{onboardingState?.status ?? "Week 5"}</Badge>}
       />
-      {showPreviewContextNotice ? (
+      {showContextNotice ? (
         <Card>
           <CardHeader>
             <CardTitle>Workspace context notice</CardTitle>
-            <CardDescription>Onboarding remains available, with context loaded from a fallback source.</CardDescription>
+            <CardDescription>
+              Onboarding remains available, but context is not coming from a production-safe metadata session.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted">
             <p>{contextNoticeBody}</p>
             <p>
-              Current source: <span className="font-medium text-foreground">{contextSource}</span>
+              Current source: <span className="font-medium text-foreground">{contextSource?.label}</span>
+            </p>
+            <p>
+              Mode:{" "}
+              <span className="font-medium text-foreground">
+                {contextSource?.localOnly ? "non-production fallback" : "fallback"}
+              </span>
             </p>
           </CardContent>
         </Card>
@@ -460,7 +731,7 @@ export function WorkspaceOnboardingWizard({
                   <div className="rounded-2xl border border-border/70 bg-card p-3 text-xs text-muted">
                     <p className="text-[0.65rem] uppercase tracking-[0.25em] text-muted">Next actions</p>
                     <ul className="mt-2 space-y-1 text-xs text-foreground">
-                      {nextActions.map((action) => (
+                      {expandedNextActions.map((action) => (
                         <li key={action}>{action}</li>
                       ))}
                     </ul>
@@ -477,13 +748,71 @@ export function WorkspaceOnboardingWizard({
             <CardDescription>Turn baseline setup into a first demo-ready workspace.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="rounded-2xl border border-border bg-card p-4 text-sm">
+            <div className="space-y-3 rounded-2xl border border-border bg-card p-4 text-sm">
               <p className="font-medium text-foreground">Guided lane</p>
               <p className="mt-1 text-xs text-muted">
                 Use the same workspace context for the full first-run path: invite the first operator or approver if
                 needed, create one service account, mint one `runs:write` API key, run the first demo in Playground,
                 then capture evidence in Verification.
               </p>
+              <div className="rounded-xl border border-border bg-background p-3">
+                <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Recommended next step</p>
+                <p className="mt-1 text-sm font-medium text-foreground">{recommendedNext.action}</p>
+                <p className="mt-1 text-xs text-muted">{recommendedNext.reason}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link href={recommendedNext.surface === onboardingGuide.surface ? onboardingGuideHref : recommendedNextHref}>
+                    <Button size="sm" variant="secondary">
+                      {recommendedNext.action}
+                    </Button>
+                  </Link>
+                  <Link href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}>
+                    <Button size="sm" variant="ghost">Open Playground and execute the first demo flow</Button>
+                  </Link>
+                </div>
+              </div>
+              {blockers.length > 0 ? (
+                <div className="rounded-xl border border-border bg-background p-3 text-xs">
+                  <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Current blockers</p>
+                  <div className="mt-2 space-y-2">
+                    {blockers.map((blocker) => (
+                      <div key={blocker.code} className="rounded-xl border border-border/70 bg-card p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="font-medium text-foreground">{blocker.message}</p>
+                          <Badge variant={blocker.severity === "blocking" ? "default" : "subtle"}>
+                            {blocker.severity === "blocking" ? "Blocking" : "Warning"}
+                          </Badge>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Link
+                            href={buildVerificationChecklistHandoffHref({
+                              pathname: toSurfacePath(normalizeBlockerSurface(blocker.surface)),
+                              ...handoffHrefArgs,
+                            })}
+                          >
+                            <Button size="sm" variant="ghost">
+                              Open {normalizeBlockerSurface(blocker.surface).replaceAll("_", " ")}
+                            </Button>
+                          </Link>
+                          {blocker.retryable ? (
+                            <Link href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}>
+                              <Button size="sm" variant="ghost">Retry in Playground</Button>
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : onboardingBlockers.length > 0 ? (
+                <div className="rounded-xl border border-border bg-background p-3 text-xs">
+                  <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Current blockers</p>
+                  <ul className="mt-2 space-y-1 text-foreground">
+                    {onboardingBlockers.map((blocker) => (
+                      <li key={blocker}>{blocker}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
             <div className="flex items-center justify-between rounded-2xl border border-border bg-background p-4 text-sm">
               <div>
@@ -497,8 +826,64 @@ export function WorkspaceOnboardingWizard({
                     ? "Service account and API key exist; Playground is now unlocked."
                     : "Finish the baseline, service account, and API key steps before invoking the run."}
                 </p>
+                {latestDemoRunHint?.suggested_action ? (
+                  <p className="mt-1 text-xs text-muted">{latestDemoRunHint.suggested_action}</p>
+                ) : null}
               </div>
               <Badge variant={firstDemoStatusVariant}>{firstDemoStatusText}</Badge>
+            </div>
+            <div className="rounded-2xl border border-border bg-card p-4 text-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-foreground">{recoveryLane.title}</p>
+                  <p className="mt-1 text-xs text-muted">{recoveryLane.body}</p>
+                </div>
+                {latestDemoRunHint?.status_label ? (
+                  <Badge variant={latestDemoRunHint.needs_attention ? "default" : "strong"}>
+                    {latestDemoRunHint.status_label}
+                  </Badge>
+                ) : null}
+              </div>
+              {deliveryGuidance?.summary ? (
+                <div className="mt-3 rounded-xl border border-border bg-background p-3 text-xs text-muted">
+                  <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Delivery guidance</p>
+                  <p className="mt-1">{deliveryGuidance.summary}</p>
+                </div>
+              ) : null}
+              <div className="mt-3 rounded-xl border border-border bg-background p-3 text-xs text-muted">
+                <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Evidence and rollback prep</p>
+                <p className="mt-1">
+                  Capture verification evidence before widening rollout, and keep rollback ownership, settings review,
+                  and run replay context ready in case the first demo needs another pass.
+                </p>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href={buildVerificationChecklistHandoffHref({
+                    pathname: toSurfacePath(recoveryLane.primarySurface),
+                    ...handoffHrefArgs,
+                  })}
+                >
+                  <Button size="sm" variant="secondary">{recoveryLane.primaryLabel}</Button>
+                </Link>
+                <Link
+                  href={buildVerificationChecklistHandoffHref({
+                    pathname: toSurfacePath(recoveryLane.secondarySurface),
+                    ...handoffHrefArgs,
+                  })}
+                >
+                  <Button size="sm" variant="ghost">{recoveryLane.secondaryLabel}</Button>
+                </Link>
+                <Link href={verificationChecklistHref}>
+                  <Button size="sm" variant="ghost">Capture verification evidence</Button>
+                </Link>
+                {stepThreeComplete ? (
+                  <Link href={goLiveDrillHref}>
+                    <Button size="sm" variant="ghost">Open go-live drill</Button>
+                  </Link>
+                ) : null}
+              </div>
+              <p className="mt-3 text-xs text-muted">Use these actions to continue the guided walkthrough.</p>
             </div>
             <div className="grid gap-3 text-sm">
               <div className="flex items-center justify-between rounded-2xl border border-border bg-background p-4">
@@ -537,27 +922,27 @@ export function WorkspaceOnboardingWizard({
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link href={buildOnboardingHref({ pathname: "/members", ...handoffHrefArgs })}>
+              <Link href={buildVerificationChecklistHandoffHref({ pathname: "/members", ...handoffHrefArgs })}>
                 <Button size="sm" variant="ghost" disabled={!stepOneComplete}>
                   Members
                 </Button>
               </Link>
-              <Link href={buildOnboardingHref({ pathname: "/service-accounts", ...handoffHrefArgs })}>
+              <Link href={buildVerificationChecklistHandoffHref({ pathname: "/service-accounts", ...handoffHrefArgs })}>
                 <Button size="sm" variant="ghost" disabled={!stepTwoComplete}>
                   Service accounts
                 </Button>
               </Link>
-              <Link href={buildOnboardingHref({ pathname: "/api-keys", ...handoffHrefArgs })}>
+              <Link href={buildVerificationChecklistHandoffHref({ pathname: "/api-keys", ...handoffHrefArgs })}>
                 <Button size="sm" variant="ghost" disabled={!stepTwoComplete}>
                   API keys
                 </Button>
               </Link>
-              <Link href={buildOnboardingHref({ pathname: "/playground", ...handoffHrefArgs })}>
+              <Link href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}>
                 <Button size="sm" variant="ghost" disabled={!stepThreeReady}>
                   Playground
                 </Button>
               </Link>
-              <Link href={buildOnboardingHref({ pathname: "/verification", ...handoffHrefArgs })}>
+              <Link href={verificationChecklistHref}>
                 <Button size="sm" variant="ghost" disabled={!onboardingState?.checklist.demo_run_created}>
                   Verification
                 </Button>
@@ -582,8 +967,17 @@ export function WorkspaceOnboardingWizard({
                 <p className="mt-1 text-xs text-muted">
                   {latestDemoRun.run_id} · {latestDemoRun.status}
                 </p>
+                {latestDemoRunHint?.status_label ? (
+                  <p className="mt-1 text-xs text-muted">{latestDemoRunHint.status_label}</p>
+                ) : null}
                 <p className="mt-1 text-xs text-muted">Trace: {latestDemoRun.trace_id}</p>
+                <p className="mt-1 text-xs text-muted">Created: {new Date(latestDemoRun.created_at).toLocaleString()}</p>
                 <p className="mt-1 text-xs text-muted">Updated: {new Date(latestDemoRun.updated_at).toLocaleString()}</p>
+                {latestDemoRun.completed_at ? (
+                  <p className="mt-1 text-xs text-muted">
+                    Completed: {new Date(latestDemoRun.completed_at).toLocaleString()}
+                  </p>
+                ) : null}
               </div>
             ) : null}
             <div className="rounded-2xl border border-border bg-background p-4 text-sm text-muted">

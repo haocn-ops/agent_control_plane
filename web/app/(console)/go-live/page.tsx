@@ -5,6 +5,7 @@ import { MockGoLiveDrillPanel } from "@/components/go-live/mock-go-live-drill-pa
 import { PageHeader } from "@/components/page-header";
 import { WorkspaceDeliveryTrackPanel } from "@/components/delivery/workspace-delivery-track-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildHandoffHref } from "@/lib/handoff-query";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 export const dynamic = "force-dynamic";
@@ -120,39 +121,18 @@ function buildGoLiveHref(args: {
   recentOwnerDisplayName?: string | null;
   recentOwnerEmail?: string | null;
 }): string {
-  const searchParams = new URLSearchParams();
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (args.evidenceCount) {
-    searchParams.set("evidence_count", args.evidenceCount);
-  }
-  if (args.recentOwnerDisplayName) {
-    searchParams.set("recent_owner_display_name", args.recentOwnerDisplayName);
-  }
-  if (args.recentOwnerEmail) {
-    searchParams.set("recent_owner_email", args.recentOwnerEmail);
-  }
-  const query = searchParams.toString();
-  return query ? `${args.pathname}?${query}` : args.pathname;
+  return buildHandoffHref(args.pathname, {
+    source: args.source,
+    week8Focus: args.week8Focus,
+    attentionWorkspace: args.attentionWorkspace,
+    attentionOrganization: args.attentionOrganization,
+    deliveryContext: args.deliveryContext,
+    recentTrackKey: args.recentTrackKey,
+    recentUpdateKind: args.recentUpdateKind,
+    evidenceCount: args.evidenceCount,
+    recentOwnerDisplayName: args.recentOwnerDisplayName,
+    recentOwnerEmail: args.recentOwnerEmail,
+  });
 }
 
 export default async function GoLivePage({
@@ -229,7 +209,7 @@ export default async function GoLivePage({
             reviewed. Keep the same workspace context, capture evidence in
             <Link
               href={buildGoLiveHref({
-                pathname: "/verification",
+                pathname: "/verification?surface=verification",
                 source: handoffSource,
                 week8Focus,
                 attentionWorkspace: handoffWorkspace,

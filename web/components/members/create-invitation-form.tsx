@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createWorkspaceInvitation } from "@/services/control-plane";
+import { ControlPlaneRequestError, createWorkspaceInvitation } from "@/services/control-plane";
 
 export function CreateInvitationForm({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient();
@@ -13,6 +13,7 @@ export function CreateInvitationForm({ workspaceSlug }: { workspaceSlug: string 
   const [role, setRole] = useState("viewer");
   const [expiresAt, setExpiresAt] = useState("");
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const mutation = useMutation({
     mutationFn: async () =>
@@ -26,9 +27,17 @@ export function CreateInvitationForm({ workspaceSlug }: { workspaceSlug: string 
       setEmail("");
       setRole("viewer");
       setExpiresAt("");
+      setFormError(null);
       await queryClient.invalidateQueries({
         queryKey: ["workspace-invitations", workspaceSlug],
       });
+    },
+    onError: (error: unknown) => {
+      if (error instanceof ControlPlaneRequestError && error.code === "invitation_limit_reached") {
+        setFormError("Invitation limit reached. Disable an existing invite or upgrade the plan.");
+        return;
+      }
+      setFormError(error instanceof Error ? error.message : "Invitation creation failed. Check email, role, and workspace access.");
     },
   });
 
@@ -56,9 +65,7 @@ export function CreateInvitationForm({ workspaceSlug }: { workspaceSlug: string 
       <p className="text-xs text-muted">
         Viewer is recommended for auditors, operator keeps run & billing flows moving, and approver handles legal checks. Pick the role that matches the task you want the newcomer to own, then adjust later from the Members panel if needed.
       </p>
-      {mutation.isError ? (
-        <p className="text-xs text-muted">Invitation creation failed. Check email, role, and workspace access.</p>
-      ) : null}
+      {formError ? <p className="text-xs text-muted">{formError}</p> : null}
       {revealedToken ? (
         <div className="rounded-2xl border border-border bg-background p-4">
           <p className="text-xs uppercase tracking-[0.15em] text-muted">One-time invite token</p>

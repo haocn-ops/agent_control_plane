@@ -6,6 +6,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test": "npm run test:unit && npm run test:contract && npm run test:page",
+    "test:unit": "node --import tsx --test lib/__tests__/control-plane-proxy.test.ts lib/__tests__/workspace-context.test.ts lib/__tests__/control-plane-service.test.ts lib/__tests__/handoff-query.test.ts lib/__tests__/billing-providers.test.ts",
+    "test:contract": "node --import tsx --test lib/__tests__/workspace-context-metadata-guard.test.ts lib/__tests__/enterprise-surface-routes.test.ts app/api/**/__tests__/*.test.ts tests/route-wrapper-consistency.test.ts",
+    "test:page": "node --import tsx --test components/__tests__/*.test.ts tests/page-level/*.test.ts",
+    "test:e2e": "node --import tsx --test tests/e2e/*.test.ts",
     "preview": "opennextjs-cloudflare build && node scripts/patch-opennext-output.mjs && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && node scripts/patch-opennext-output.mjs && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && node scripts/patch-opennext-output.mjs && opennextjs-cloudflare upload",
@@ -34,6 +39,7 @@
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "wrangler": "^4.79.0"
   }

@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
+import type {
+  ControlPlaneAdminDeliveryUpdateKind,
+  ControlPlaneWorkspaceDedicatedEnvironmentSaveRequest,
+  ControlPlaneWorkspaceSsoSaveRequest,
+} from "@/lib/control-plane-types";
+import { buildAdminReturnHref, buildHandoffHref } from "@/lib/handoff-query";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,12 +18,15 @@ import {
   cancelBillingSubscription,
   createBillingPortalSession,
   createBillingCheckoutSession,
-  downloadWorkspaceAuditExport,
+  downloadWorkspaceAuditExportViewModel,
   fetchBillingCheckoutSession,
   fetchCurrentWorkspace,
   fetchWorkspaceDedicatedEnvironmentReadiness,
   fetchWorkspaceSsoReadiness,
+  isControlPlaneRequestError,
   resumeBillingSubscription,
+  saveWorkspaceDedicatedEnvironmentReadiness,
+  saveWorkspaceSsoReadiness,
 } from "@/services/control-plane";
 
 function formatPrice(monthlyPriceCents: number): string {
@@ -102,6 +110,198 @@ function formatDedicatedDeploymentModelLabel(model?: string | null): string {
     return "single tenant";
   }
   return model.replace(/_/g, " ");
+}
+
+function enterpriseStatusBadgeVariant(args: {
+  enabled: boolean;
+  status?: string | null;
+  configured?: boolean | null;
+  configurationState?: string | null;
+  isError?: boolean;
+}): "strong" | "default" | "subtle" {
+  if (args.isError) {
+    return "default";
+  }
+  if (args.enabled && (args.configured === true || args.status === "configured")) {
+    return "strong";
+  }
+  if (args.enabled && args.configurationState === "in_progress") {
+    return "default";
+  }
+  if (args.enabled) {
+    return "default";
+  }
+  return "subtle";
+}
+
+function enterpriseStatusLabel(args: {
+  enabled: boolean;
+  status?: string | null;
+  configured?: boolean | null;
+  configurationState?: string | null;
+  isError?: boolean;
+}): string {
+  if (args.isError) {
+    return "Readiness unavailable";
+  }
+  if (args.enabled && (args.configured === true || args.status === "configured")) {
+    return "Configured";
+  }
+  if (args.enabled && args.configurationState === "in_progress") {
+    return "Config in progress";
+  }
+  if (!args.enabled) {
+    return "Plan-gated";
+  }
+  if (args.status === "not_configured") {
+    return "Configuration pending";
+  }
+  return "Provisioning staged";
+}
+
+function toIsoDateBoundary(value: string, mode: "start" | "end"): string | null {
+  const raw = value.trim();
+  if (!raw) {
+    return null;
+  }
+  const date = new Date(`${raw}${mode === "start" ? "T00:00:00.000Z" : "T23:59:59.999Z"}`);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  return date.toISOString();
+}
+
+type ContractMetaSource =
+  | "live"
+  | "fallback_feature_gate"
+  | "fallback_control_plane_unavailable"
+  | "fallback_error";
+
+function contractSourceBadgeVariant(source?: ContractMetaSource | null): "strong" | "default" | "subtle" {
+  if (source === "live") {
+    return "strong";
+  }
+  if (source === "fallback_error") {
+    return "default";
+  }
+  return "subtle";
+}
+
+function contractSourceLabel(source?: ContractMetaSource | null): string {
+  if (source === "live") {
+    return "Live contract";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Fallback: feature gate";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Fallback: control plane unavailable";
+  }
+  if (source === "fallback_error") {
+    return "Fallback: request error";
+  }
+  return "Contract source unknown";
+}
+
+function contractSourceDescription(source?: ContractMetaSource | null): string {
+  if (source === "live") {
+    return "Signals are loaded from live control-plane contract responses.";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Feature is currently plan-gated. UI shows fallback guidance until entitlement changes.";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Control plane is unavailable; readiness is currently fallback-derived.";
+  }
+  if (source === "fallback_error") {
+    return "Readiness load failed; showing fallback values for continuity.";
+  }
+  return "Contract source information is unavailable.";
+}
+
+type EnterpriseAdditiveState = {
+  configured: boolean | null;
+  configurationState: string | null;
+  deliveryStatus: string | null;
+  readinessVersion: string | null;
+};
+
+function readBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
+}
+
+function readEnterpriseAdditiveState(input: unknown): EnterpriseAdditiveState {
+  if (!input || typeof input !== "object") {
+    return {
+      configured: null,
+      configurationState: null,
+      deliveryStatus: null,
+      readinessVersion: null,
+    };
+  }
+  const raw = input as Record<string, unknown>;
+  return {
+    configured: readBoolean(raw.configured),
+    configurationState: readString(raw.configuration_state),
+    deliveryStatus: readString(raw.delivery_status),
+    readinessVersion: readString(raw.readiness_version),
+  };
+}
+
+function formatTokenLabel(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+  return value.replace(/[_-]/g, " ");
+}
+
+function isLikelyHttpsUrl(value: string): boolean {
+  const raw = value.trim();
+  if (!raw) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    return parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isLikelyDomain(value: string): boolean {
+  const raw = value.trim().toLowerCase();
+  return /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(raw);
+}
+
+function isLikelyEmail(value: string): boolean {
+  const raw = value.trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw);
+}
+
+function normalizeDomainList(values: Array<string | null | undefined> | null | undefined): string[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const domain = value.trim().toLowerCase();
+    if (!domain || seen.has(domain)) {
+      continue;
+    }
+    seen.add(domain);
+    normalized.push(domain);
+  }
+
+  return normalized;
 }
 
 type CheckoutSessionStatus =
@@ -191,6 +391,9 @@ type AuditExportState = {
   exporting: boolean;
   error: string | null;
   notice: string | null;
+  contractSource: ContractMetaSource | null;
+  contractIssueMessage: string | null;
+  contractIssueCode: string | null;
 };
 
 function defaultAuditExportState(): AuditExportState {
@@ -198,6 +401,25 @@ function defaultAuditExportState(): AuditExportState {
     exporting: false,
     error: null,
     notice: null,
+    contractSource: null,
+    contractIssueMessage: null,
+    contractIssueCode: null,
+  };
+}
+
+type EnterpriseWriteState = {
+  submitting: boolean;
+  error: string | null;
+  notice: string | null;
+  responseCode: string | null;
+};
+
+function defaultEnterpriseWriteState(): EnterpriseWriteState {
+  return {
+    submitting: false,
+    error: null,
+    notice: null,
+    responseCode: null,
   };
 }
 
@@ -211,8 +433,179 @@ function extractCheckoutSession(payload: CheckoutSessionEnvelope): CheckoutSessi
   return null;
 }
 
+function normalizeBillingProviderCode(providerCode?: string | null): string {
+  return (providerCode ?? "").trim().toLowerCase();
+}
+
+function isStripeBillingProvider(providerCode?: string | null): boolean {
+  return normalizeBillingProviderCode(providerCode) === "stripe";
+}
+
+function isMockBillingProvider(providerCode?: string | null): boolean {
+  const normalized = normalizeBillingProviderCode(providerCode);
+  return normalized === "mock_checkout" || normalized === "mock";
+}
+
 function isCheckoutReadyForCompletion(status: string, billingProvider?: string | null): boolean {
-  return billingProvider === "mock_checkout" && ["created", "open", "ready", "requires_confirmation"].includes(status);
+  return isMockBillingProvider(billingProvider) && ["created", "open", "ready", "requires_confirmation"].includes(status);
+}
+
+function formatBillingActionAvailabilityText(args: {
+  availability?: "ready" | "staged" | string;
+  providerCode?: string | null;
+  selfServeEnabled?: boolean;
+  providerSupportsCheckout?: boolean;
+}): string {
+  if (isMockBillingProvider(args.providerCode)) {
+    return "Mock checkout is kept as a test-only fallback; production self-serve flows rely on Stripe when enabled.";
+  }
+  if (args.availability === "ready") {
+    if (isStripeBillingProvider(args.providerCode)) {
+      return "Self-serve checkout is live through Stripe-hosted checkout and webhook confirmation.";
+    }
+    return "This billing action is available now through the current workspace billing flow.";
+  }
+  if (args.providerSupportsCheckout && args.selfServeEnabled) {
+    return "Provider checkout is configured but not currently ready. Refresh provider state and retry.";
+  }
+  return "Self-serve checkout is not live for this workspace yet. Continue with the workspace-managed fallback flow.";
+}
+
+function formatCheckoutActionError(
+  error: unknown,
+  args: {
+    action: "create" | "complete" | "refresh";
+    providerCode?: string | null;
+  },
+): string {
+  const providerLabel = isStripeBillingProvider(args.providerCode) ? "Stripe" : "the current billing provider";
+  if (isControlPlaneRequestError(error)) {
+    const normalizedCode = error.code.toLowerCase();
+    if (args.action === "complete" && (isStripeBillingProvider(args.providerCode) || normalizedCode.includes("webhook"))) {
+      return `${providerLabel} finalizes completion after checkout. Use Refresh session after payment to sync status.`;
+    }
+    if (args.action === "create" && (normalizedCode.includes("not_ready") || normalizedCode.includes("unavailable"))) {
+      return "Checkout is not ready for this workspace yet. Confirm provider readiness and plan eligibility, then retry.";
+    }
+    if (args.action === "refresh" && error.status === 404) {
+      return "Checkout session was not found. Create a new session from this page and continue.";
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  if (args.action === "create") {
+    return "Unable to create checkout session.";
+  }
+  if (args.action === "complete") {
+    return "Unable to complete checkout session.";
+  }
+  return "Unable to refresh checkout session.";
+}
+
+function formatPortalActionError(error: unknown): string {
+  if (isControlPlaneRequestError(error)) {
+    const normalizedCode = error.code.toLowerCase();
+    if (normalizedCode.includes("portal") && normalizedCode.includes("unsupported")) {
+      return "The current billing provider does not expose a customer portal for this workspace.";
+    }
+    if (normalizedCode === "billing_provider_portal_unavailable") {
+      return "The current subscription provider does not offer a customer portal for this workspace.";
+    }
+    if (normalizedCode === "billing_provider_portal_unimplemented") {
+      return "This provider-managed portal flow is not available yet for the current billing provider.";
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return "Unable to open billing portal.";
+}
+
+function formatSubscriptionActionError(
+  error: unknown,
+  args: {
+    action: "cancel" | "resume";
+  },
+): string {
+  if (isControlPlaneRequestError(error)) {
+    const normalizedCode = error.code.toLowerCase();
+    if (normalizedCode === "billing_subscription_managed_by_provider") {
+      return args.action === "cancel"
+        ? "This subscription is managed in the billing provider portal. Open billing portal from this page to change cancellation timing."
+        : "This subscription is managed in the billing provider portal. Open billing portal from this page to restore renewal settings.";
+    }
+    if (normalizedCode === "billing_subscription_not_cancellable") {
+      return "This subscription can no longer be scheduled for cancellation from this workspace.";
+    }
+    if (normalizedCode === "billing_subscription_not_resumable") {
+      return "This subscription must be replaced through checkout before renewal can resume.";
+    }
+    if (normalizedCode === "billing_subscription_missing") {
+      return "No workspace subscription is available to update right now. Refresh settings and retry.";
+    }
+    if (normalizedCode === "billing_subscription_not_paid") {
+      return "Only paid subscriptions can change renewal timing from this page.";
+    }
+    if (normalizedCode === "billing_subscription_plan_unavailable") {
+      return "Billing plan details are unavailable right now. Refresh settings and retry.";
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return args.action === "cancel"
+    ? "Unable to schedule cancellation"
+    : "Unable to resume subscription renewal";
+}
+
+function formatEnterpriseWriteError(
+  error: unknown,
+  args: {
+    feature: "sso" | "dedicated_environment";
+  },
+): string {
+  const featureLabel = args.feature === "sso" ? "SSO" : "Dedicated environment";
+  if (isControlPlaneRequestError(error)) {
+    const normalizedCode = error.code.toLowerCase();
+    if (normalizedCode === "workspace_context_not_metadata") {
+      const contextSource = typeof error.details.source === "string" ? error.details.source : null;
+      return `${featureLabel} live write requires metadata-backed workspace context. Current source: ${
+        contextSource ?? "unknown"
+      }. Re-open this workspace from onboarding or another metadata-backed entry, then retry.`;
+    }
+    if (normalizedCode === "workspace_feature_unavailable") {
+      return `${featureLabel} live write is still plan-gated for this workspace. Upgrade the plan, then retry.`;
+    }
+    if (error.status === 404 || error.status === 405) {
+      return `${featureLabel} live write is wired in the console, but the control-plane write handler is not enabled yet. Keep this preflight summary and retry after backend rollout.`;
+    }
+    if (error.status >= 500) {
+      return `${featureLabel} write is temporarily unavailable because control-plane write handling is not healthy. Retry after recovery.`;
+    }
+    if (normalizedCode === "idempotency_conflict") {
+      return `${featureLabel} write was already submitted with a different payload. Refresh the form and retry once the desktop service confirms the previous save.`;
+    }
+    if (error.status === 401 || error.status === 403) {
+      return `${featureLabel} configuration requires workspace owner or admin access. Confirm your role and retry once the proper permissions are granted.`;
+    }
+    if (error.message) {
+      return error.message;
+    }
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return `Unable to submit ${featureLabel.toLowerCase()} configuration.`;
 }
 
 type SettingsSource = "admin-attention" | "admin-readiness" | "onboarding";
@@ -264,35 +657,23 @@ type SettingsHrefArgs = {
 };
 
 function buildSettingsHref(args: SettingsHrefArgs): string {
-  const [basePath, rawQuery] = args.pathname.split("?", 2);
+  const href = buildHandoffHref(
+    args.pathname,
+    {
+      source: args.source,
+      week8Focus: args.week8Focus,
+      attentionWorkspace: args.attentionWorkspace,
+      attentionOrganization: args.attentionOrganization,
+      deliveryContext: args.deliveryContext,
+      recentTrackKey: args.recentTrackKey,
+      recentUpdateKind: args.recentUpdateKind,
+      evidenceCount: args.evidenceCount,
+      recentOwnerLabel: args.recentOwnerLabel,
+    },
+    { preserveExistingQuery: true },
+  );
+  const [basePath, rawQuery] = href.split("?", 2);
   const searchParams = new URLSearchParams(rawQuery ?? "");
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
   if (args.intent) {
     searchParams.set("intent", args.intent);
   }
@@ -309,36 +690,6 @@ function buildSettingsIntentHref(
     ...args,
     intent,
   });
-}
-
-function buildAdminReturnHref(args: {
-  source: SettingsSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  recentTrackKey?: "verification" | "go_live" | null;
-}): string {
-  const searchParams = new URLSearchParams();
-  if (args.source === "admin-attention") {
-    if (args.recentTrackKey) {
-      searchParams.set("queue_surface", args.recentTrackKey);
-    }
-    searchParams.set("queue_returned", "1");
-  }
-  if (args.source === "admin-readiness") {
-    if (args.week8Focus) {
-      searchParams.set("week8_focus", args.week8Focus);
-    }
-    searchParams.set("readiness_returned", "1");
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  const query = searchParams.toString();
-  return query ? `/admin?${query}` : "/admin";
 }
 
 function readinessFocusLabel(focus?: string | null): string {
@@ -417,6 +768,31 @@ export function WorkspaceSettingsPanel({
     defaultSubscriptionActionState,
   );
   const [auditExport, setAuditExport] = useState<AuditExportState>(defaultAuditExportState);
+  const [auditExportFormat, setAuditExportFormat] = useState<"json" | "jsonl">("jsonl");
+  const [auditFromDate, setAuditFromDate] = useState("");
+  const [auditToDate, setAuditToDate] = useState("");
+  const [ssoDraft, setSsoDraft] = useState({
+    protocol: "oidc" as "oidc" | "saml",
+    metadataUrl: "",
+    entityId: "",
+    domains: "",
+  });
+  const [hydratedSsoConfigKey, setHydratedSsoConfigKey] = useState<string | null>(null);
+  const [ssoPreflightNotice, setSsoPreflightNotice] = useState<string | null>(null);
+  const [ssoWriteState, setSsoWriteState] = useState<EnterpriseWriteState>(defaultEnterpriseWriteState);
+  const [dedicatedDraft, setDedicatedDraft] = useState({
+    targetRegion: "",
+    dataClassification: "internal" as "internal" | "restricted" | "external",
+    requesterEmail: "",
+    requestedCapacity: "",
+    requestedSla: "",
+    networkNotes: "",
+  });
+  const [hydratedDedicatedConfigKey, setHydratedDedicatedConfigKey] = useState<string | null>(null);
+  const [dedicatedPreflightNotice, setDedicatedPreflightNotice] = useState<string | null>(null);
+  const [dedicatedWriteState, setDedicatedWriteState] = useState<EnterpriseWriteState>(
+    defaultEnterpriseWriteState,
+  );
 
   const workspace = data?.workspace;
   const plan = data?.plan;
@@ -435,7 +811,7 @@ export function WorkspaceSettingsPanel({
   const overLimitMetrics = metrics.filter(([, metric]) => metric.over_limit);
   const canStartCheckout =
     billingSummary?.action?.kind === "upgrade" &&
-    (billingSummary.action.availability === "ready" || billingSummary.action.availability === "staged");
+    billingSummary.action.availability === "ready";
   const canScheduleCancellation =
     Boolean(subscription) &&
     !subscription?.cancel_at_period_end &&
@@ -445,8 +821,9 @@ export function WorkspaceSettingsPanel({
     Boolean(subscription) &&
     subscription?.cancel_at_period_end === true &&
     !["cancelled", "paused"].includes(subscription?.status ?? "");
-  const isStripeWorkspace =
-    (subscription?.billing_provider ?? billingSummary?.provider ?? currentBillingProvider?.code ?? "") === "stripe";
+  const resolvedBillingProviderCode =
+    subscription?.billing_provider ?? billingSummary?.provider ?? currentBillingProvider?.code ?? null;
+  const isStripeWorkspace = isStripeBillingProvider(resolvedBillingProviderCode);
   const canOpenBillingPortal =
     Boolean(subscription) && Boolean(currentBillingProvider?.supports_customer_portal);
   const showLocalSubscriptionControls = !isStripeWorkspace && (canScheduleCancellation || canResumeRenewal);
@@ -468,16 +845,16 @@ export function WorkspaceSettingsPanel({
     evidenceCount: normalizedEvidenceCount,
     recentOwnerLabel,
   } satisfies Omit<SettingsHrefArgs, "pathname" | "intent">;
-  const adminReturnHref = buildAdminReturnHref({
+  const adminReturnHref = buildAdminReturnHref("/admin", {
     source: normalizedSource,
+    queueSurface: normalizedRecentTrackKey,
     week8Focus,
-    attentionWorkspace,
+    attentionWorkspace: attentionWorkspace ?? workspaceSlug,
     attentionOrganization,
-    recentTrackKey: normalizedRecentTrackKey,
   });
   const usageHref = buildSettingsHref({ pathname: "/usage", ...handoffHrefArgs });
-  const verificationHref = buildSettingsHref({ pathname: "/verification", ...handoffHrefArgs });
-  const goLiveHref = buildSettingsHref({ pathname: "/go-live", ...handoffHrefArgs });
+  const verificationHref = buildSettingsHref({ pathname: "/verification?surface=verification", ...handoffHrefArgs });
+  const goLiveHref = buildSettingsHref({ pathname: "/go-live?surface=go_live", ...handoffHrefArgs });
   const upgradeIntentHref = buildSettingsIntentHref("upgrade", handoffHrefArgs);
   const billingActionHref = billingSummary?.action
     ? buildSettingsHref({
@@ -490,6 +867,13 @@ export function WorkspaceSettingsPanel({
     billingActionHref ?? billingSummary?.action?.href,
   );
   const auditExportEnabled = plan?.features?.audit_export === true;
+  const auditContractSource: ContractMetaSource | null =
+    auditExport.contractSource ?? (auditExportEnabled ? null : "fallback_feature_gate");
+  const auditContractIssueMessage =
+    auditExport.contractIssueMessage ??
+    (!auditExportEnabled ? "Audit export is not available on the current plan." : null);
+  const auditContractIssueCode =
+    auditExport.contractIssueCode ?? (!auditExportEnabled ? "workspace_feature_unavailable" : null);
   const ssoEnabledByPlan = plan?.features?.sso === true;
   const ssoFeatureEnabled = ssoReadiness?.feature_enabled ?? ssoEnabledByPlan;
   const ssoUpgradeHref =
@@ -514,6 +898,20 @@ export function WorkspaceSettingsPanel({
     (billingSummary?.action?.kind === "upgrade" ? billingActionHref : upgradeIntentHref) ??
     upgradeIntentHref;
   const ssoProtocols = ssoReadiness?.supported_protocols ?? ["oidc", "saml"];
+  const ssoContractSource = (ssoReadiness?.contract_meta?.source ?? null) as ContractMetaSource | null;
+  const ssoContractIssue = ssoReadiness?.contract_meta?.issue ?? null;
+  const ssoAdditiveState = readEnterpriseAdditiveState(ssoReadiness);
+  const ssoConfigured = ssoAdditiveState.configured ?? (ssoReadiness?.status === "configured");
+  const ssoConfigurationState = ssoAdditiveState.configurationState;
+  const ssoDeliveryStatus = ssoAdditiveState.deliveryStatus;
+  const ssoReadinessVersion = ssoAdditiveState.readinessVersion;
+  const ssoConfiguredDomains = normalizeDomainList([
+    ...(ssoReadiness?.email_domains ?? []),
+    ssoReadiness?.email_domain ?? null,
+  ]);
+  const ssoConfiguredDomainsDraftValue = ssoConfiguredDomains.join(", ");
+  const ssoConfiguredIdentity =
+    ssoReadiness?.provider_type === "saml" ? (ssoReadiness?.audience ?? null) : (ssoReadiness?.client_id ?? null);
   const ssoNextSteps = ssoReadiness?.next_steps ?? [
     "Upgrade to a plan with SSO support.",
     "Choose OIDC or SAML as the connection protocol.",
@@ -524,6 +922,65 @@ export function WorkspaceSettingsPanel({
     "Confirm region and compliance boundaries for the target deployment.",
     "Review network and access isolation requirements before provisioning.",
   ];
+  const dedicatedContractSource = (dedicatedEnvironmentReadiness?.contract_meta?.source ?? null) as ContractMetaSource | null;
+  const dedicatedContractIssue = dedicatedEnvironmentReadiness?.contract_meta?.issue ?? null;
+  const dedicatedAdditiveState = readEnterpriseAdditiveState(dedicatedEnvironmentReadiness);
+  const dedicatedConfigured =
+    dedicatedAdditiveState.configured ?? (dedicatedEnvironmentReadiness?.status === "configured");
+  const dedicatedConfigurationState = dedicatedAdditiveState.configurationState;
+  const dedicatedDeliveryStatus = dedicatedAdditiveState.deliveryStatus;
+  const dedicatedReadinessVersion = dedicatedAdditiveState.readinessVersion;
+  const dedicatedConfiguredRegion = dedicatedEnvironmentReadiness?.target_region ?? workspace?.data_region ?? null;
+  const dedicatedRequesterEmail = readString(dedicatedEnvironmentReadiness?.requester_email);
+  const dedicatedDataClassification = readString(dedicatedEnvironmentReadiness?.data_classification);
+  const dedicatedRequestedCapacity = readString(dedicatedEnvironmentReadiness?.requested_capacity);
+  const dedicatedRequestedSla = readString(dedicatedEnvironmentReadiness?.requested_sla);
+  const ssoDomainList = ssoDraft.domains
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => item !== "");
+  const ssoValidationErrors = [
+    !ssoFeatureEnabled ? "SSO write flow is locked until plan upgrade." : null,
+    ssoDraft.metadataUrl.trim() === "" ? "Metadata URL is required for preflight." : null,
+    ssoDraft.metadataUrl.trim() !== "" && !isLikelyHttpsUrl(ssoDraft.metadataUrl)
+      ? "Metadata URL must be a valid HTTPS URL."
+      : null,
+    ssoDomainList.length === 0 ? "At least one domain is required for preflight." : null,
+    ssoDomainList.some((domain) => !isLikelyDomain(domain))
+      ? "One or more domains are invalid."
+      : null,
+  ].filter((item): item is string => item !== null);
+  const ssoPreflightReady = ssoValidationErrors.length === 0;
+  const ssoSubmitDisabledReason = ssoWriteState.submitting
+    ? "Submitting SSO configuration..."
+    : !ssoFeatureEnabled
+      ? "SSO write flow is locked until plan upgrade."
+      : !ssoPreflightReady
+        ? ssoValidationErrors[0]
+        : null;
+  const ssoMetadataHost =
+    ssoDraft.metadataUrl.trim() !== "" && isLikelyHttpsUrl(ssoDraft.metadataUrl)
+      ? new URL(ssoDraft.metadataUrl).host
+      : null;
+
+  const dedicatedValidationErrors = [
+    !dedicatedEnvironmentFeatureEnabled
+      ? "Dedicated environment write flow is locked until plan upgrade."
+      : null,
+    dedicatedDraft.targetRegion.trim() === "" ? "Target region is required for preflight." : null,
+    dedicatedDraft.requesterEmail.trim() === "" ? "Requester email is required for preflight." : null,
+    dedicatedDraft.requesterEmail.trim() !== "" && !isLikelyEmail(dedicatedDraft.requesterEmail)
+      ? "Requester email format is invalid."
+      : null,
+  ].filter((item): item is string => item !== null);
+  const dedicatedPreflightReady = dedicatedValidationErrors.length === 0;
+  const dedicatedSubmitDisabledReason = dedicatedWriteState.submitting
+    ? "Submitting dedicated-environment intake..."
+    : !dedicatedEnvironmentFeatureEnabled
+      ? "Dedicated environment write flow is locked until plan upgrade."
+      : !dedicatedPreflightReady
+        ? dedicatedValidationErrors[0]
+        : null;
 
   const readinessCard =
     normalizedSource === "admin-readiness"
@@ -658,6 +1115,70 @@ export function WorkspaceSettingsPanel({
     };
   }, [checkout.session?.session_id, initialCheckoutSessionId]);
 
+  useEffect(() => {
+    const configKey = ssoReadiness?.configured_at ?? (ssoConfigured ? "configured" : null);
+    if (!configKey || hydratedSsoConfigKey === configKey) {
+      return;
+    }
+    if (!ssoReadiness?.provider_type && !ssoReadiness?.metadata_url && !ssoConfiguredIdentity && ssoConfiguredDomains.length === 0) {
+      return;
+    }
+
+    setSsoDraft((current) => ({
+      ...current,
+      protocol: ssoReadiness?.provider_type ?? current.protocol,
+      metadataUrl: ssoReadiness?.metadata_url ?? current.metadataUrl,
+      entityId: ssoConfiguredIdentity ?? current.entityId,
+      domains: ssoConfiguredDomainsDraftValue,
+    }));
+    setHydratedSsoConfigKey(configKey);
+  }, [
+    hydratedSsoConfigKey,
+    ssoConfigured,
+    ssoConfiguredDomainsDraftValue,
+    ssoConfiguredIdentity,
+    ssoReadiness?.configured_at,
+    ssoReadiness?.metadata_url,
+    ssoReadiness?.provider_type,
+  ]);
+
+  useEffect(() => {
+    const configKey = dedicatedEnvironmentReadiness?.configured_at ?? (dedicatedConfigured ? "configured" : null);
+    if (!configKey || hydratedDedicatedConfigKey === configKey) {
+      return;
+    }
+    if (
+      !dedicatedConfiguredRegion &&
+      !dedicatedRequesterEmail &&
+      !dedicatedRequestedCapacity &&
+      !dedicatedRequestedSla &&
+      !dedicatedEnvironmentReadiness?.network_boundary
+    ) {
+      return;
+    }
+
+    setDedicatedDraft((current) => ({
+      ...current,
+      targetRegion: dedicatedConfiguredRegion ?? current.targetRegion,
+      dataClassification: dedicatedEnvironmentReadiness?.data_classification ?? current.dataClassification,
+      requesterEmail: dedicatedRequesterEmail ?? current.requesterEmail,
+      requestedCapacity: dedicatedRequestedCapacity ?? current.requestedCapacity,
+      requestedSla: dedicatedRequestedSla ?? current.requestedSla,
+      networkNotes: dedicatedEnvironmentReadiness?.network_boundary ?? current.networkNotes,
+    }));
+    setHydratedDedicatedConfigKey(configKey);
+  }, [
+    dedicatedConfigured,
+    dedicatedConfiguredRegion,
+    dedicatedEnvironmentReadiness?.configured_at,
+    dedicatedEnvironmentReadiness?.data_classification,
+    dedicatedEnvironmentReadiness?.network_boundary,
+    dedicatedRequesterEmail,
+    dedicatedRequestedCapacity,
+    dedicatedRequestedSla,
+    hydratedDedicatedConfigKey,
+  ]);
+
   async function createCheckoutSession(): Promise<void> {
     if (!canStartCheckout || checkout.creating || checkout.completing || checkout.refreshing) {
       return;
@@ -674,22 +1195,28 @@ export function WorkspaceSettingsPanel({
         billing_interval: billingInterval,
       });
       const session = extractCheckoutSession(payload);
+      const isStripeCheckoutSession = isStripeBillingProvider(session?.billing_provider);
       setCheckout((current) => ({
         ...current,
         creating: false,
         session,
         notice: session
-          ? "Checkout session prepared. Review details before completing the upgrade step."
+          ? isStripeCheckoutSession
+            ? "Stripe checkout session prepared. Redirecting to provider-hosted checkout..."
+            : "Checkout session prepared. Review details, then complete the upgrade step in this workspace flow."
           : "Checkout request accepted. Refresh to fetch latest session details.",
       }));
-      if (session?.billing_provider === "stripe" && session.checkout_url) {
+      if (isStripeCheckoutSession && session?.checkout_url) {
         window.location.assign(session.checkout_url);
       }
     } catch (error) {
       setCheckout((current) => ({
         ...current,
         creating: false,
-        error: error instanceof Error ? error.message : "Unable to create checkout session",
+        error: formatCheckoutActionError(error, {
+          action: "create",
+          providerCode: currentBillingProvider?.code ?? resolvedBillingProviderCode,
+        }),
       }));
     }
   }
@@ -712,7 +1239,9 @@ export function WorkspaceSettingsPanel({
         ...current,
         refreshing: false,
         session: session ?? current.session,
-        notice: "Checkout session status refreshed.",
+        notice: isStripeBillingProvider(session?.billing_provider ?? current.session?.billing_provider)
+          ? "Checkout status refreshed. Stripe sessions update after provider checkout and webhook confirmation."
+          : "Checkout session status refreshed.",
       }));
       if (session) {
         setBillingInterval(session.billing_interval);
@@ -721,7 +1250,10 @@ export function WorkspaceSettingsPanel({
       setCheckout((current) => ({
         ...current,
         refreshing: false,
-        error: error instanceof Error ? error.message : "Unable to refresh checkout session",
+        error: formatCheckoutActionError(error, {
+          action: "refresh",
+          providerCode: current.session?.billing_provider ?? currentBillingProvider?.code ?? resolvedBillingProviderCode,
+        }),
       }));
     }
   }
@@ -747,13 +1279,18 @@ export function WorkspaceSettingsPanel({
         ...current,
         completing: false,
         session: session ?? current.session,
-        notice: "Checkout session marked completed. Workspace billing summary has been refreshed.",
+        notice: isStripeBillingProvider(session?.billing_provider ?? current.session?.billing_provider)
+          ? "Provider confirmation received. Workspace billing summary has been refreshed."
+          : "Checkout session marked completed. Workspace billing summary has been refreshed.",
       }));
     } catch (error) {
       setCheckout((current) => ({
         ...current,
         completing: false,
-        error: error instanceof Error ? error.message : "Unable to complete checkout session",
+        error: formatCheckoutActionError(error, {
+          action: "complete",
+          providerCode: current.session?.billing_provider ?? currentBillingProvider?.code ?? resolvedBillingProviderCode,
+        }),
       }));
     }
   }
@@ -793,7 +1330,9 @@ export function WorkspaceSettingsPanel({
         openingPortal: false,
         cancelling: false,
         resuming: false,
-        error: error instanceof Error ? error.message : "Unable to schedule cancellation",
+        error: formatSubscriptionActionError(error, {
+          action: "cancel",
+        }),
         notice: null,
       });
     }
@@ -834,7 +1373,9 @@ export function WorkspaceSettingsPanel({
         openingPortal: false,
         cancelling: false,
         resuming: false,
-        error: error instanceof Error ? error.message : "Unable to resume subscription renewal",
+        error: formatSubscriptionActionError(error, {
+          action: "resume",
+        }),
         notice: null,
       });
     }
@@ -871,8 +1412,129 @@ export function WorkspaceSettingsPanel({
         openingPortal: false,
         cancelling: false,
         resuming: false,
-        error: error instanceof Error ? error.message : "Unable to open billing portal",
+        error: formatPortalActionError(error),
         notice: null,
+      });
+    }
+  }
+
+  async function submitSsoConfiguration(): Promise<void> {
+    if (ssoWriteState.submitting || ssoSubmitDisabledReason) {
+      return;
+    }
+
+    const entityId = ssoDraft.entityId.trim();
+    const payload: ControlPlaneWorkspaceSsoSaveRequest = {
+      enabled: true,
+      provider_type: ssoDraft.protocol,
+      connection_mode: "workspace",
+      metadata_url: ssoDraft.metadataUrl.trim(),
+      email_domain: ssoDomainList[0] ?? null,
+      email_domains: ssoDomainList,
+      client_id: ssoDraft.protocol === "oidc" && entityId ? entityId : null,
+      audience: ssoDraft.protocol === "saml" && entityId ? entityId : null,
+      notes: null,
+    };
+
+    setSsoWriteState({
+      submitting: true,
+      error: null,
+      notice: null,
+      responseCode: null,
+    });
+    setSsoPreflightNotice(null);
+
+    try {
+      await saveWorkspaceSsoReadiness(payload);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-settings", workspaceSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-sso-readiness", workspaceSlug],
+        }),
+      ]);
+      setSsoWriteState({
+        submitting: false,
+        error: null,
+        notice:
+          "SSO configuration was recorded through controlled live write. Settings and readiness were refreshed for the latest status.",
+        responseCode: null,
+      });
+    } catch (error) {
+      setSsoWriteState({
+        submitting: false,
+        error: formatEnterpriseWriteError(error, { feature: "sso" }),
+        notice: null,
+        responseCode: isControlPlaneRequestError(error) ? error.code : null,
+      });
+    }
+  }
+
+  async function submitDedicatedEnvironmentRequest(): Promise<void> {
+    if (dedicatedWriteState.submitting || dedicatedSubmitDisabledReason) {
+      return;
+    }
+
+    const requesterEmail = dedicatedDraft.requesterEmail.trim();
+    const networkNotes = dedicatedDraft.networkNotes.trim();
+    const requestedCapacity = dedicatedDraft.requestedCapacity.trim();
+    const requestedSla = dedicatedDraft.requestedSla.trim();
+    const notes = [
+      `Requester: ${requesterEmail}`,
+      `Data classification: ${dedicatedDraft.dataClassification}`,
+      requestedCapacity ? `Requested capacity: ${requestedCapacity}` : null,
+      requestedSla ? `Requested SLA: ${requestedSla}` : null,
+      networkNotes ? `Network / isolation notes: ${networkNotes}` : null,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join("\n");
+    const payload: ControlPlaneWorkspaceDedicatedEnvironmentSaveRequest = {
+      enabled: true,
+      deployment_model: "single_tenant",
+      target_region: dedicatedDraft.targetRegion.trim(),
+      compliance_notes: `Requested dedicated environment intake for ${formatTokenLabel(
+        dedicatedDraft.dataClassification,
+      )} data handling.`,
+      network_boundary: networkNotes || null,
+      requester_email: requesterEmail || null,
+      data_classification: dedicatedDraft.dataClassification,
+      requested_capacity: requestedCapacity || null,
+      requested_sla: requestedSla || null,
+      notes: notes || null,
+    };
+
+    setDedicatedWriteState({
+      submitting: true,
+      error: null,
+      notice: null,
+      responseCode: null,
+    });
+    setDedicatedPreflightNotice(null);
+
+    try {
+      await saveWorkspaceDedicatedEnvironmentReadiness(payload);
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-settings", workspaceSlug],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["workspace-dedicated-environment-readiness", workspaceSlug],
+        }),
+      ]);
+      setDedicatedWriteState({
+        submitting: false,
+        error: null,
+        notice:
+          "Dedicated environment intake was recorded through controlled live write. Settings and readiness were refreshed for the latest status.",
+        responseCode: null,
+      });
+    } catch (error) {
+      setDedicatedWriteState({
+        submitting: false,
+        error: formatEnterpriseWriteError(error, { feature: "dedicated_environment" }),
+        notice: null,
+        responseCode: isControlPlaneRequestError(error) ? error.code : null,
       });
     }
   }
@@ -882,16 +1544,59 @@ export function WorkspaceSettingsPanel({
       return;
     }
 
+    const from = toIsoDateBoundary(auditFromDate, "start");
+    const to = toIsoDateBoundary(auditToDate, "end");
+    if (auditFromDate && !from) {
+      setAuditExport({
+        exporting: false,
+        error: "Invalid start date. Use YYYY-MM-DD.",
+        notice: null,
+        contractSource: null,
+        contractIssueMessage: null,
+        contractIssueCode: null,
+      });
+      return;
+    }
+    if (auditToDate && !to) {
+      setAuditExport({
+        exporting: false,
+        error: "Invalid end date. Use YYYY-MM-DD.",
+        notice: null,
+        contractSource: null,
+        contractIssueMessage: null,
+        contractIssueCode: null,
+      });
+      return;
+    }
+    if (from && to && new Date(from).getTime() > new Date(to).getTime()) {
+      setAuditExport({
+        exporting: false,
+        error: "Start date must be earlier than end date.",
+        notice: null,
+        contractSource: null,
+        contractIssueMessage: null,
+        contractIssueCode: null,
+      });
+      return;
+    }
+
     setAuditExport({
       exporting: true,
       error: null,
       notice: null,
+      contractSource: null,
+      contractIssueMessage: null,
+      contractIssueCode: null,
     });
 
-    try {
-      const download = await downloadWorkspaceAuditExport({
-        format: "jsonl",
-      });
+    const result = await downloadWorkspaceAuditExportViewModel({
+      format: auditExportFormat,
+      from: from ?? undefined,
+      to: to ?? undefined,
+    });
+    const contractSource = result.contract_meta.source;
+    if (result.ok) {
+      const download = result;
       const objectUrl = URL.createObjectURL(download.blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
@@ -903,15 +1608,29 @@ export function WorkspaceSettingsPanel({
       setAuditExport({
         exporting: false,
         error: null,
-        notice: "Audit export downloaded. You can share it with compliance reviewers.",
+        notice: "Audit export downloaded. Attach it to verification/go-live evidence as needed.",
+        contractSource,
+        contractIssueMessage: null,
+        contractIssueCode: null,
       });
-    } catch (error) {
-      setAuditExport({
-        exporting: false,
-        error: error instanceof Error ? error.message : "Unable to export audit events",
-        notice: null,
-      });
+      return;
     }
+
+    const issue = result.error;
+    const sourceMessage =
+      contractSource === "fallback_feature_gate"
+        ? "Audit export is gated by current plan entitlements. Upgrade to unlock export."
+        : contractSource === "fallback_control_plane_unavailable"
+          ? "Control plane is unavailable; audit export cannot be generated right now."
+          : "Audit export request failed. Retry after checking workspace/control-plane health.";
+    setAuditExport({
+      exporting: false,
+      error: `${sourceMessage}${issue.message ? ` (${issue.message})` : ""}`,
+      notice: null,
+      contractSource,
+      contractIssueMessage: issue.message,
+      contractIssueCode: issue.code,
+    });
   }
 
   return (
@@ -1072,12 +1791,50 @@ export function WorkspaceSettingsPanel({
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={ssoFeatureEnabled ? "strong" : "subtle"}>
-              {ssoFeatureEnabled ? "Enabled on plan" : "Staged on current plan"}
+            <Badge
+              variant={enterpriseStatusBadgeVariant({
+                enabled: ssoFeatureEnabled,
+                status: ssoReadiness?.status ?? null,
+                configured: ssoConfigured,
+                configurationState: ssoConfigurationState,
+                isError: isSsoError,
+              })}
+            >
+              {enterpriseStatusLabel({
+                enabled: ssoFeatureEnabled,
+                status: ssoReadiness?.status ?? null,
+                configured: ssoConfigured,
+                configurationState: ssoConfigurationState,
+                isError: isSsoError,
+              })}
+            </Badge>
+            <Badge variant={ssoFeatureEnabled ? "default" : "subtle"}>
+              {ssoFeatureEnabled ? "Plan feature enabled" : "Plan upgrade required"}
             </Badge>
             <Badge variant="subtle">{formatFeatureStatusLabel(ssoReadiness?.status)}</Badge>
+            {ssoConfigurationState ? (
+              <Badge variant="subtle">config: {formatTokenLabel(ssoConfigurationState)}</Badge>
+            ) : null}
+            {ssoDeliveryStatus ? (
+              <Badge variant={ssoDeliveryStatus === "complete" ? "strong" : "default"}>
+                delivery: {formatTokenLabel(ssoDeliveryStatus)}
+              </Badge>
+            ) : null}
+            {ssoReadinessVersion ? <Badge variant="subtle">v{formatTokenLabel(ssoReadinessVersion)}</Badge> : null}
             {isSsoLoading ? <Badge variant="subtle">Loading readiness...</Badge> : null}
             {isSsoError ? <Badge variant="default">Unable to load live status</Badge> : null}
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={contractSourceBadgeVariant(ssoContractSource)}>
+                {contractSourceLabel(ssoContractSource)}
+              </Badge>
+              {ssoContractIssue?.code ? <Badge variant="subtle">code: {ssoContractIssue.code}</Badge> : null}
+            </div>
+            <p className="mt-2 text-xs text-muted">{contractSourceDescription(ssoContractSource)}</p>
+            {ssoContractIssue?.message ? (
+              <p className="mt-1 text-xs text-muted">Issue: {ssoContractIssue.message}</p>
+            ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1102,18 +1859,186 @@ export function WorkspaceSettingsPanel({
             </div>
           </div>
 
+          {ssoConfigured ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Saved configuration</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Configured domains</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {ssoConfiguredDomains.length > 0 ? ssoConfiguredDomains.join(", ") : "Not saved"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">
+                    {ssoReadiness?.provider_type === "saml" ? "Audience" : "Client ID"}
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{ssoConfiguredIdentity ?? "Not saved"}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Metadata URL</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {ssoReadiness?.metadata_url ?? "Not saved"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Entrypoint URL</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {ssoReadiness?.entrypoint_url ?? "Not saved"}
+                  </p>
+                </div>
+              </div>
+              {ssoReadiness?.notes ? (
+                <p className="mt-3 text-xs text-muted">Operator notes: {ssoReadiness.notes}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-2xl border border-border bg-background p-4">
             <p className="text-muted">Readiness checklist</p>
             <p className="mt-1 text-xs text-muted">
               {ssoFeatureEnabled
-                ? "This slice ships a real plan-gated SSO readiness/config surface. Full sign-in enforcement is still staged until the runtime auth integration lands."
+                ? ssoConfigured
+                  ? "SSO is marked configured in readiness data. Use this section to validate rollout evidence and keep handoff artifacts current."
+                  : "Use this section to drive operator handoff for SSO rollout. Controlled live write can record configuration intent here, while readiness cues and evidence handoff remain the source of truth for rollout status."
                 : "This workspace can preview SSO requirements here, but provider setup stays locked until the plan includes the feature."}
             </p>
+            {ssoConfigurationState || ssoDeliveryStatus ? (
+              <p className="mt-1 text-xs text-muted">
+                Runtime state: configuration{" "}
+                <span className="text-foreground">{formatTokenLabel(ssoConfigurationState ?? "unknown")}</span> ·
+                delivery <span className="text-foreground">{formatTokenLabel(ssoDeliveryStatus ?? "unknown")}</span>
+              </p>
+            ) : null}
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
               {ssoNextSteps.map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ul>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Configuration skeleton</p>
+            <p className="mt-1 text-xs text-muted">
+              Use these inputs to validate request completeness, then submit a controlled live write when the workspace
+              is eligible. Success here records configuration intent; rollout still depends on readiness and delivery status.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Protocol
+                <select
+                  value={ssoDraft.protocol}
+                  disabled={!ssoFeatureEnabled}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value === "saml" ? "saml" : "oidc";
+                    setSsoDraft((current) => ({ ...current, protocol: value }));
+                    setSsoPreflightNotice(null);
+                    setSsoWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="oidc">OIDC</option>
+                  <option value="saml">SAML</option>
+                </select>
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                IdP metadata URL
+                <input
+                  type="url"
+                  placeholder="https://idp.example.com/.well-known/openid-configuration"
+                  value={ssoDraft.metadataUrl}
+                  disabled={!ssoFeatureEnabled}
+                  onChange={(event) => {
+                    setSsoDraft((current) => ({ ...current, metadataUrl: event.currentTarget.value }));
+                    setSsoPreflightNotice(null);
+                    setSsoWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Entity / client ID (optional)
+                <input
+                  type="text"
+                  placeholder="workspace-console"
+                  value={ssoDraft.entityId}
+                  disabled={!ssoFeatureEnabled}
+                  onChange={(event) => {
+                    setSsoDraft((current) => ({ ...current, entityId: event.currentTarget.value }));
+                    setSsoPreflightNotice(null);
+                    setSsoWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Domain mappings (comma separated)
+                <input
+                  type="text"
+                  placeholder="example.com, sub.example.com"
+                  value={ssoDraft.domains}
+                  disabled={!ssoFeatureEnabled}
+                  onChange={(event) => {
+                    setSsoDraft((current) => ({ ...current, domains: event.currentTarget.value }));
+                    setSsoPreflightNotice(null);
+                    setSsoWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+            </div>
+            <div className="mt-3 rounded-xl border border-border bg-card p-3 text-xs">
+              <p className="text-muted">Preflight summary</p>
+              <p className="mt-1 text-foreground">
+                Protocol: {ssoDraft.protocol.toUpperCase()} · Domains: {ssoDomainList.length} · Metadata host:{" "}
+                {ssoMetadataHost ?? "-"}
+              </p>
+              <p className="mt-1 text-muted">Entity ID: {ssoDraft.entityId.trim() || "-"}</p>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!ssoPreflightReady}
+                onClick={() => {
+                  setSsoPreflightNotice(
+                    "SSO preflight is ready. Review the summary, then use controlled live write to record configuration intent.",
+                  );
+                }}
+              >
+                Validate preflight
+              </Button>
+              <Button size="sm" disabled={Boolean(ssoSubmitDisabledReason)} onClick={() => void submitSsoConfiguration()}>
+                {ssoWriteState.submitting ? "Submitting SSO..." : "Submit SSO configuration"}
+              </Button>
+              <Link
+                href={verificationHref}
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Capture SSO evidence
+              </Link>
+              <Link
+                href={goLiveHref}
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Continue to go-live drill
+              </Link>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Submit status: {ssoSubmitDisabledReason ?? "Ready for controlled live write."}
+            </p>
+            {!ssoPreflightReady ? (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
+                {ssoValidationErrors.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            {ssoPreflightNotice ? <p className="mt-2 text-xs text-emerald-700">{ssoPreflightNotice}</p> : null}
+            {ssoWriteState.notice ? <p className="mt-2 text-xs text-emerald-700">{ssoWriteState.notice}</p> : null}
+            {ssoWriteState.error ? <p className="mt-2 text-xs text-rose-700">{ssoWriteState.error}</p> : null}
+            {ssoWriteState.responseCode ? (
+              <p className="mt-1 text-xs text-muted">Latest response code: {ssoWriteState.responseCode}</p>
+            ) : null}
           </div>
 
           {!ssoFeatureEnabled ? (
@@ -1142,12 +2067,54 @@ export function WorkspaceSettingsPanel({
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={dedicatedEnvironmentFeatureEnabled ? "strong" : "subtle"}>
-              {dedicatedEnvironmentFeatureEnabled ? "Enabled on plan" : "Staged on current plan"}
+            <Badge
+              variant={enterpriseStatusBadgeVariant({
+                enabled: dedicatedEnvironmentFeatureEnabled,
+                status: dedicatedEnvironmentReadiness?.status ?? null,
+                configured: dedicatedConfigured,
+                configurationState: dedicatedConfigurationState,
+                isError: isDedicatedEnvironmentError,
+              })}
+            >
+              {enterpriseStatusLabel({
+                enabled: dedicatedEnvironmentFeatureEnabled,
+                status: dedicatedEnvironmentReadiness?.status ?? null,
+                configured: dedicatedConfigured,
+                configurationState: dedicatedConfigurationState,
+                isError: isDedicatedEnvironmentError,
+              })}
+            </Badge>
+            <Badge variant={dedicatedEnvironmentFeatureEnabled ? "default" : "subtle"}>
+              {dedicatedEnvironmentFeatureEnabled ? "Plan feature enabled" : "Plan upgrade required"}
             </Badge>
             <Badge variant="subtle">{formatFeatureStatusLabel(dedicatedEnvironmentReadiness?.status)}</Badge>
+            {dedicatedConfigurationState ? (
+              <Badge variant="subtle">config: {formatTokenLabel(dedicatedConfigurationState)}</Badge>
+            ) : null}
+            {dedicatedDeliveryStatus ? (
+              <Badge variant={dedicatedDeliveryStatus === "complete" ? "strong" : "default"}>
+                delivery: {formatTokenLabel(dedicatedDeliveryStatus)}
+              </Badge>
+            ) : null}
+            {dedicatedReadinessVersion ? (
+              <Badge variant="subtle">v{formatTokenLabel(dedicatedReadinessVersion)}</Badge>
+            ) : null}
             {isDedicatedEnvironmentLoading ? <Badge variant="subtle">Loading readiness...</Badge> : null}
             {isDedicatedEnvironmentError ? <Badge variant="default">Unable to load live status</Badge> : null}
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={contractSourceBadgeVariant(dedicatedContractSource)}>
+                {contractSourceLabel(dedicatedContractSource)}
+              </Badge>
+              {dedicatedContractIssue?.code ? (
+                <Badge variant="subtle">code: {dedicatedContractIssue.code}</Badge>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-muted">{contractSourceDescription(dedicatedContractSource)}</p>
+            {dedicatedContractIssue?.message ? (
+              <p className="mt-1 text-xs text-muted">Issue: {dedicatedContractIssue.message}</p>
+            ) : null}
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1173,13 +2140,231 @@ export function WorkspaceSettingsPanel({
             </p>
           </div>
 
+          {dedicatedConfigured ? (
+            <div className="rounded-2xl border border-border bg-background p-4">
+              <p className="text-muted">Saved provisioning request</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Network boundary</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {dedicatedEnvironmentReadiness?.network_boundary ?? "Not saved"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Compliance notes</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {dedicatedEnvironmentReadiness?.compliance_notes ?? "Not saved"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Requester email</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{dedicatedRequesterEmail ?? "-"}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Data classification</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {dedicatedDataClassification ? formatTokenLabel(dedicatedDataClassification) : "-"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Requested capacity</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{dedicatedRequestedCapacity ?? "-"}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3">
+                  <p className="text-xs text-muted">Requested SLA</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">{dedicatedRequestedSla ?? "-"}</p>
+                </div>
+              </div>
+              {dedicatedEnvironmentReadiness?.notes ? (
+                <p className="mt-3 whitespace-pre-wrap text-xs text-muted">{dedicatedEnvironmentReadiness.notes}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="rounded-2xl border border-border bg-background p-4">
             <p className="text-muted">Readiness checklist</p>
+            {dedicatedConfigurationState || dedicatedDeliveryStatus ? (
+              <p className="mt-1 text-xs text-muted">
+                Runtime state: configuration{" "}
+                <span className="text-foreground">{formatTokenLabel(dedicatedConfigurationState ?? "unknown")}</span> ·
+                delivery <span className="text-foreground">{formatTokenLabel(dedicatedDeliveryStatus ?? "unknown")}</span>
+              </p>
+            ) : null}
             <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
               {dedicatedEnvironmentNextSteps.map((step) => (
                 <li key={step}>{step}</li>
               ))}
             </ul>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4">
+            <p className="text-muted">Provisioning intake skeleton</p>
+            <p className="mt-1 text-xs text-muted">
+              This intake panel validates the request locally, then lets operators submit a controlled live write when
+              the workspace is eligible. A successful submit records the provisioning request; actual rollout still follows readiness and delivery governance.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Target region request
+                <input
+                  type="text"
+                  placeholder="us-east-1"
+                  value={dedicatedDraft.targetRegion}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    setDedicatedDraft((current) => ({ ...current, targetRegion: event.currentTarget.value }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Data classification
+                <select
+                  value={dedicatedDraft.dataClassification}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setDedicatedDraft((current) => ({
+                      ...current,
+                      dataClassification:
+                        value === "restricted" || value === "external" ? value : "internal",
+                    }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <option value="internal">Internal</option>
+                  <option value="restricted">Restricted</option>
+                  <option value="external">External</option>
+                </select>
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Requester email
+                <input
+                  type="email"
+                  placeholder="owner@example.com"
+                  value={dedicatedDraft.requesterEmail}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    setDedicatedDraft((current) => ({ ...current, requesterEmail: event.currentTarget.value }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Requested capacity (optional)
+                <input
+                  type="text"
+                  placeholder="6 vCPU / 16 GB memory"
+                  value={dedicatedDraft.requestedCapacity}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    setDedicatedDraft((current) => ({ ...current, requestedCapacity: event.currentTarget.value }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Requested SLA (optional)
+                <input
+                  type="text"
+                  placeholder="99.9% / 24x7"
+                  value={dedicatedDraft.requestedSla}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    setDedicatedDraft((current) => ({ ...current, requestedSla: event.currentTarget.value }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+              <label className="rounded-xl border border-border bg-card p-3 text-xs text-muted">
+                Network/isolation notes (optional)
+                <textarea
+                  value={dedicatedDraft.networkNotes}
+                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  onChange={(event) => {
+                    setDedicatedDraft((current) => ({ ...current, networkNotes: event.currentTarget.value }));
+                    setDedicatedPreflightNotice(null);
+                    setDedicatedWriteState((current) => ({ ...current, error: null, notice: null, responseCode: null }));
+                  }}
+                  className="mt-2 min-h-[64px] w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </label>
+            </div>
+            <div className="mt-3 rounded-xl border border-border bg-card p-3 text-xs">
+              <p className="text-muted">Preflight summary</p>
+              <p className="mt-1 text-foreground">
+                Region: {dedicatedDraft.targetRegion.trim() || "-"} · Classification:{" "}
+                {formatTokenLabel(dedicatedDraft.dataClassification)}
+              </p>
+              <p className="mt-1 text-muted">Requester: {dedicatedDraft.requesterEmail.trim() || "-"}</p>
+              <p className="mt-1 text-muted">
+                Capacity: {dedicatedDraft.requestedCapacity.trim() || "-"} · SLA: {dedicatedDraft.requestedSla.trim() || "-"}
+              </p>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!dedicatedPreflightReady}
+                onClick={() => {
+                  setDedicatedPreflightNotice(
+                    "Dedicated environment preflight is ready. Review the summary, then use controlled live write to record the provisioning request.",
+                  );
+                }}
+              >
+                Validate preflight
+              </Button>
+              <Button
+                size="sm"
+                disabled={Boolean(dedicatedSubmitDisabledReason)}
+                onClick={() => void submitDedicatedEnvironmentRequest()}
+              >
+                {dedicatedWriteState.submitting ? "Submitting intake..." : "Submit provisioning intake"}
+              </Button>
+              <Link
+                href={verificationHref}
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Attach environment evidence
+              </Link>
+              <Link
+                href={goLiveHref}
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Continue to go-live drill
+              </Link>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              Submit status: {dedicatedSubmitDisabledReason ?? "Ready for controlled live write."}
+            </p>
+            {!dedicatedPreflightReady ? (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
+                {dedicatedValidationErrors.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
+            {dedicatedPreflightNotice ? (
+              <p className="mt-2 text-xs text-emerald-700">{dedicatedPreflightNotice}</p>
+            ) : null}
+            {dedicatedWriteState.notice ? (
+              <p className="mt-2 text-xs text-emerald-700">{dedicatedWriteState.notice}</p>
+            ) : null}
+            {dedicatedWriteState.error ? (
+              <p className="mt-2 text-xs text-rose-700">{dedicatedWriteState.error}</p>
+            ) : null}
+            {dedicatedWriteState.responseCode ? (
+              <p className="mt-1 text-xs text-muted">Latest response code: {dedicatedWriteState.responseCode}</p>
+            ) : null}
           </div>
 
           {!dedicatedEnvironmentFeatureEnabled ? (
@@ -1209,9 +2394,9 @@ export function WorkspaceSettingsPanel({
         <CardContent className="space-y-4 text-sm">
           <div className="flex flex-wrap items-center gap-3">
             <Badge variant={billingBadgeVariant(billingSummary?.status_tone ?? "neutral")}>
-              {billingSummary?.status_label ?? "Billing staged"}
+              {billingSummary?.status_label ?? "Billing status unavailable"}
             </Badge>
-            <Badge variant="subtle">{billingSummary?.provider ?? "manual"}</Badge>
+            <Badge variant="subtle">{billingSummary?.provider ?? "workspace_managed"}</Badge>
             {subscription?.cancel_at_period_end ? <Badge variant="default">Ends at period close</Badge> : null}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -1230,12 +2415,14 @@ export function WorkspaceSettingsPanel({
             <div className="rounded-2xl border border-border bg-background p-4">
               <p className="text-muted">Subscription status</p>
               <p className="mt-1 font-medium text-foreground">
-                {billingSummary?.status ?? subscription?.status ?? "manual_free"}
+                {billingSummary?.status ?? subscription?.status ?? "workspace_managed"}
               </p>
             </div>
             <div className="rounded-2xl border border-border bg-background p-4">
               <p className="text-muted">Billing provider</p>
-              <p className="mt-1 font-medium text-foreground">{billingSummary?.provider ?? subscription?.billing_provider ?? "manual"}</p>
+              <p className="mt-1 font-medium text-foreground">
+                {billingSummary?.provider ?? subscription?.billing_provider ?? "workspace_managed"}
+              </p>
             </div>
           </div>
           <div className="rounded-2xl border border-border bg-background p-4">
@@ -1248,7 +2435,7 @@ export function WorkspaceSettingsPanel({
             <p className="text-muted">Status summary</p>
             <p className="mt-1 font-medium text-foreground">{billingSummary?.description ?? "Billing summary pending."}</p>
             <p className="mt-2 text-xs text-muted">
-              Self-serve enabled: {billingSummary?.self_serve_enabled ? "yes" : "staged next"}
+              Self-serve enabled: {billingSummary?.self_serve_enabled ? "yes" : "no (workspace-managed fallback)"}
             </p>
           </div>
           {providerEntries.length > 0 ? (
@@ -1258,28 +2445,38 @@ export function WorkspaceSettingsPanel({
                 Current provider: {currentBillingProvider?.display_name ?? billingProviders?.current_provider_code ?? billingSummary?.provider ?? "Not assigned"}
               </p>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {providerEntries.map((provider) => (
-                  <div key={provider.code} className="rounded-xl border border-border bg-card p-3">
+                {providerEntries.map((provider) => {
+                  const providerIsMock = isMockBillingProvider(provider.code);
+                  return (
+                    <div key={provider.code} className="rounded-xl border border-border bg-card p-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-foreground">{provider.display_name}</p>
                       <Badge variant={provider.is_current ? "strong" : "subtle"}>{provider.status}</Badge>
                     </div>
                     <p className="mt-2 text-xs text-muted">
                       {provider.supports_checkout ? "Checkout ready" : "Checkout not enabled"} ·{" "}
-                      {provider.supports_subscription_cancel ? "Subscription controls available" : "Subscription controls staged"}
+                      {provider.supports_subscription_cancel
+                        ? "Subscription controls available"
+                        : "Subscription controls not enabled"}
                     </p>
                     <p className="mt-1 text-xs text-muted">
                       {provider.supports_webhooks
                         ? `Webhook path: ${provider.webhook_path ?? "configured internally"}`
                         : "Webhook ingestion not enabled"}
                     </p>
+                    {providerIsMock ? (
+                      <p className="mt-1 text-xs text-muted text-amber-800">
+                        This mock checkout entry is retained as a test/fallback option, not a production self-serve provider.
+                      </p>
+                    ) : null}
                     {provider.notes.map((note) => (
                       <p key={note} className="mt-1 text-xs text-muted">
                         {note}
                       </p>
                     ))}
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           ) : null}
@@ -1288,9 +2485,12 @@ export function WorkspaceSettingsPanel({
               <p className="text-muted">Next billing action</p>
               <p className="mt-1 font-medium text-foreground">{billingSummary.action.label}</p>
               <p className="mt-2 text-xs text-muted">
-                {billingSummary.action.availability === "ready"
-                  ? "This subscription path is ready for self-serve checkout review in the console."
-                  : "This is a staged self-serve entry point for the next Week 7 checkout slice. It is intentionally not a live external payment flow yet."}
+                {formatBillingActionAvailabilityText({
+                  availability: billingSummary.action.availability,
+                  providerCode: currentBillingProvider?.code ?? resolvedBillingProviderCode,
+                  selfServeEnabled: billingSummary.self_serve_enabled,
+                  providerSupportsCheckout: currentBillingProvider?.supports_checkout,
+                })}
               </p>
               {canStartCheckout ? (
                 <div className="mt-3 space-y-2">
@@ -1390,7 +2590,7 @@ export function WorkspaceSettingsPanel({
               <p className="mt-1 text-xs text-muted">
                 {canOpenBillingPortal
                   ? "Open the billing provider portal to manage payment methods, invoices, and renewal settings."
-                  : "This Week 7 flow supports scheduling the current subscription to end at period close and removing that scheduled cancellation before the period ends."}
+                  : "Manage renewal timing directly in this workspace while provider portal access is unavailable."}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
                 {canOpenBillingPortal ? (
@@ -1428,9 +2628,67 @@ export function WorkspaceSettingsPanel({
             <p className="text-muted">Audit export</p>
             <p className="mt-1 text-xs text-muted">
               {auditExportEnabled
-                ? "Export workspace audit events as a download package for compliance review."
-                : "Audit export is staged for this workspace plan. Upgrade to unlock export downloads."}
+                ? "Export workspace audit events for compliance review and attach output into verification/go-live evidence."
+                : "Audit export is not enabled on this workspace plan. Upgrade to unlock export downloads."}
             </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <Badge variant={contractSourceBadgeVariant(auditContractSource)}>
+                {contractSourceLabel(auditContractSource)}
+              </Badge>
+              {auditContractIssueCode ? (
+                <Badge variant="subtle">code: {auditContractIssueCode}</Badge>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-muted">{contractSourceDescription(auditContractSource)}</p>
+            {auditContractIssueMessage ? (
+              <p className="mt-1 text-xs text-muted">Issue: {auditContractIssueMessage}</p>
+            ) : null}
+            <p className="mt-2 text-xs text-muted">
+              Date filters are applied as UTC day boundaries in this slice.
+            </p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-border bg-card p-3 sm:col-span-1">
+                <p className="text-xs text-muted">Format</p>
+                <div className="mt-2 inline-flex rounded-full border border-border bg-background p-1">
+                  {(["jsonl", "json"] as const).map((format) => {
+                    const selected = auditExportFormat === format;
+                    return (
+                      <button
+                        key={format}
+                        type="button"
+                        disabled={!auditExportEnabled || auditExport.exporting}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                          selected ? "bg-foreground text-background" : "text-muted hover:text-foreground"
+                        } disabled:cursor-not-allowed disabled:opacity-60`}
+                        onClick={() => setAuditExportFormat(format)}
+                      >
+                        {format.toUpperCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <p className="text-xs text-muted">From (optional)</p>
+                <input
+                  type="date"
+                  value={auditFromDate}
+                  disabled={!auditExportEnabled || auditExport.exporting}
+                  onChange={(event) => setAuditFromDate(event.currentTarget.value)}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+              <div className="rounded-xl border border-border bg-card p-3">
+                <p className="text-xs text-muted">To (optional)</p>
+                <input
+                  type="date"
+                  value={auditToDate}
+                  disabled={!auditExportEnabled || auditExport.exporting}
+                  onChange={(event) => setAuditToDate(event.currentTarget.value)}
+                  className="mt-2 w-full rounded-lg border border-border bg-background px-2 py-1 text-xs text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+            </div>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -1440,6 +2698,18 @@ export function WorkspaceSettingsPanel({
               >
                 {auditExport.exporting ? "Exporting..." : "Download audit export"}
               </Button>
+              <Link
+                href={verificationHref}
+                className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Attach in verification
+              </Link>
+              <Link
+                href={goLiveHref}
+                className="inline-flex items-center justify-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Carry to go-live drill
+              </Link>
               {!auditExportEnabled && billingSummary?.action?.kind === "upgrade" ? (
                 billingActionHref ? (
                   <Link
@@ -1451,6 +2721,11 @@ export function WorkspaceSettingsPanel({
                 ) : null
               ) : null}
             </div>
+            {!auditExportEnabled ? (
+              <p className="mt-2 text-xs text-muted">
+                Export disabled reason: current plan does not include audit export.
+              </p>
+            ) : null}
           </div>
           {checkout.session ? (
             <div className="rounded-2xl border border-border bg-background p-4">
@@ -1485,9 +2760,9 @@ export function WorkspaceSettingsPanel({
               <div className="mt-3 text-xs text-muted space-y-1">
                 <p>Session owner: {sessionProviderLabel}.</p>
                 <p>
-                  {checkout.session.billing_provider === "stripe"
+                  {isStripeBillingProvider(checkout.session.billing_provider)
                     ? "Stripe manages this session, so completion happens only after its checkout process finishes and the provider webhook confirms the upgrade."
-                    : "This checkout preview is part of the internal Week 7 flow; once the status is ready, use the button below to mark the upgrade complete."}
+                    : "This session is workspace-managed. When status is ready, use the completion action below to finalize the upgrade."}
                 </p>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">

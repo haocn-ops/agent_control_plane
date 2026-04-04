@@ -1,8 +1,19 @@
 import { cookies, headers } from "next/headers";
 
 export const WORKSPACE_COOKIE_NAME = "govrail_workspace";
+export const WORKSPACE_CONTEXT_WARNING_HEADER = "x-govrail-workspace-context-warning";
 const WORKSPACE_HEADER_SLUG = "x-workspace-slug";
 const WORKSPACE_HEADER_ID = "x-workspace-id";
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+export type WorkspaceContextSource = "metadata" | "env-fallback" | "preview-fallback";
+
+export type WorkspaceContextSourceDetail = {
+  label: "SaaS metadata" | "Environment fallback (non-production)" | "Preview fallback (non-production)";
+  is_fallback: boolean;
+  local_only: boolean;
+  warning: string | null;
+};
 
 export type WorkspaceRecord = {
   workspace_id: string;
@@ -14,7 +25,8 @@ export type WorkspaceRecord = {
 };
 
 export type WorkspaceContext = {
-  source: "metadata" | "env-fallback" | "preview-fallback";
+  source: WorkspaceContextSource;
+  source_detail: WorkspaceContextSourceDetail;
   session_user: {
     user_id: string;
     email: string;
@@ -65,6 +77,40 @@ const DEFAULT_PREVIEW_WORKSPACE: WorkspaceRecord = {
   subject_id: "codex@local",
   subject_roles: "platform_admin",
 };
+
+export function isWorkspaceContextFallbackSource(source: WorkspaceContextSource): boolean {
+  return source !== "metadata";
+}
+
+export function describeWorkspaceContextSource(source: WorkspaceContextSource): WorkspaceContextSourceDetail {
+  if (source === "metadata") {
+    return {
+      label: "SaaS metadata",
+      is_fallback: false,
+      local_only: false,
+      warning: null,
+    };
+  }
+
+  return {
+    label: source === "env-fallback" ? "Environment fallback (non-production)" : "Preview fallback (non-production)",
+    is_fallback: true,
+    local_only: true,
+    warning: getFallbackWorkspaceContextWarning(source),
+  };
+}
+
+function getFallbackWorkspaceContextWarning(source: WorkspaceContextSource): string | null {
+  if (source === "env-fallback") {
+    return "Workspace context was loaded from environment fallback values. Use metadata-backed session context before production rollout.";
+  }
+
+  if (source === "preview-fallback") {
+    return "Workspace context is running in preview fallback mode. This is for local/demo validation only and should not be treated as production identity state.";
+  }
+
+  return null;
+}
 
 function getBaseUrl(): string {
   return (
@@ -332,7 +378,7 @@ async function getAvailableWorkspaces(args: {
   preferredSubjectId?: string | null;
   preferredSubjectRoles?: string | null;
 }): Promise<{
-  source: WorkspaceContext["source"];
+  source: WorkspaceContextSource;
   sessionUser: WorkspaceContext["session_user"];
   available: WorkspaceRecord[];
 }> {
@@ -370,7 +416,7 @@ async function getAvailableWorkspaces(args: {
   };
 }
 
-function resolveCookieWorkspaceFromRawCookie(rawCookie: string | null): string | null {
+export function resolveCookieWorkspaceFromRawCookie(rawCookie: string | null): string | null {
   if (!rawCookie) {
     return null;
   }
@@ -380,7 +426,20 @@ function resolveCookieWorkspaceFromRawCookie(rawCookie: string | null): string |
     .map((part) => part.trim())
     .find((part) => part.startsWith(`${WORKSPACE_COOKIE_NAME}=`));
 
-  return matched ? decodeURIComponent(matched.split("=")[1] ?? "") || null : null;
+  if (!matched) {
+    return null;
+  }
+
+  const rawValue = matched.split("=")[1] ?? "";
+  if (!rawValue) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(rawValue) || null;
+  } catch {
+    return rawValue || null;
+  }
 }
 
 function resolvePreferredSubjectId(requestHeaders: Headers): string | null {
@@ -404,6 +463,17 @@ export async function resolveWorkspaceContextFromValues(args: WorkspaceSelection
     preferredSubjectId: args.preferredSubjectId,
     preferredSubjectRoles: args.preferredSubjectRoles,
   });
+  const sourceDetail = describeWorkspaceContextSource(source);
+  if (IS_PRODUCTION && sourceDetail.is_fallback) {
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        event: "workspace_context_fallback_in_production",
+        source,
+        warning: sourceDetail.warning,
+      }),
+    );
+  }
   const requestedWorkspaceId = args.requestedWorkspaceId?.trim() || null;
   const requestedWorkspaceSlug =
     args.requestedWorkspaceSlug?.trim() || args.cookieWorkspace?.trim() || null;
@@ -412,6 +482,7 @@ export async function resolveWorkspaceContextFromValues(args: WorkspaceSelection
 
   return {
     source,
+    source_detail: sourceDetail,
     session_user: sessionUser,
     workspace: selected,
     available_workspaces: available,

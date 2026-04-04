@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { createApiKey } from "@/services/control-plane";
+import { ControlPlaneRequestError, createApiKey } from "@/services/control-plane";
 
 const DEFAULT_SCOPE = "runs:write";
 
@@ -29,14 +29,29 @@ function buildRunQuickstart(secret: string): string {
   }'`;
 }
 
+function formatApiKeyError(error: unknown): string {
+  if (error instanceof ControlPlaneRequestError) {
+    if (error.code === "api_key_limit_reached") {
+      const limit = typeof error.details.limit === "number" ? error.details.limit : "unknown";
+      return `API key limit reached (${limit}). ${error.message}`;
+    }
+    return error.message ?? "API key request failed.";
+  }
+  return "API key request failed. Check workspace permissions.";
+}
+
 export function CreateApiKeyForm({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient();
   const [serviceAccountId, setServiceAccountId] = useState("");
   const [scope, setScope] = useState(DEFAULT_SCOPE);
   const [expiresAt, setExpiresAt] = useState("");
   const [revealedSecret, setRevealedSecret] = useState<string | null>(null);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   const mutation = useMutation({
+    onMutate: () => {
+      setSubmissionError(null);
+    },
     mutationFn: async () =>
       createApiKey({
         service_account_id: serviceAccountId.trim() || undefined,
@@ -48,6 +63,10 @@ export function CreateApiKeyForm({ workspaceSlug }: { workspaceSlug: string }) {
       await queryClient.invalidateQueries({
         queryKey: ["workspace-api-keys", workspaceSlug],
       });
+      setSubmissionError(null);
+    },
+    onError: (error: unknown) => {
+      setSubmissionError(formatApiKeyError(error));
     },
   });
 
@@ -71,8 +90,8 @@ export function CreateApiKeyForm({ workspaceSlug }: { workspaceSlug: string }) {
       <Button disabled={mutation.isPending} onClick={() => mutation.mutate()}>
         {mutation.isPending ? "Creating key..." : "Create key"}
       </Button>
-      {mutation.isError ? (
-        <p className="text-xs text-muted">API key creation failed. Check workspace permissions and backend config.</p>
+      {submissionError ? (
+        <p className="text-xs text-red-600">{submissionError}</p>
       ) : null}
       {revealedSecret ? (
         <div className="space-y-4 rounded-2xl border border-border bg-background p-4">

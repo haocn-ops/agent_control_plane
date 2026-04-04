@@ -8,79 +8,22 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import type { ControlPlaneToolProvider } from "@/lib/control-plane-types";
-import { fetchToolProviders } from "@/services/control-plane";
+import {
+  PlanLimitState,
+  createToolProvider,
+  fetchToolProviders,
+  updateToolProviderStatus,
+} from "@/services/control-plane";
 
 function badgeVariant(status: string): "strong" | "default" {
   return status === "active" ? "strong" : "default";
 }
-
-type ApiErrorPayload = {
-  error?: {
-    code?: string;
-    message?: string;
-    details?: Record<string, unknown>;
-  };
-};
-
-type PlanLimitState = {
-  scope: string;
-  used: number | null;
-  limit: number | null;
-  message: string;
-} | null;
 
 function getErrorText(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
   }
   return "Request failed";
-}
-
-function toStringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() !== "" ? value : null;
-}
-
-function toNumberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function parsePlanLimitError(payload: ApiErrorPayload): PlanLimitState {
-  if (payload.error?.code !== "plan_limit_exceeded") {
-    return null;
-  }
-  const details = payload.error.details ?? {};
-  return {
-    scope: toStringValue(details.scope) ?? "workspace_limit",
-    used: toNumberValue(details.used),
-    limit: toNumberValue(details.limit),
-    message: payload.error.message ?? "Workspace reached the current plan limit.",
-  };
-}
-
-async function postJson<T>(path: string, body: Record<string, unknown>): Promise<{ data: T; planLimit: PlanLimitState }> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  const payload = (await response.json()) as
-    | { data: T; meta: { request_id: string; trace_id: string } }
-    | ApiErrorPayload;
-  const planLimit = parsePlanLimitError(payload as ApiErrorPayload);
-  if (!response.ok) {
-    throw Object.assign(new Error((payload as ApiErrorPayload).error?.message ?? `Request failed with ${response.status}`), {
-      planLimit,
-    });
-  }
-
-  return {
-    data: (payload as { data: T }).data,
-    planLimit,
-  };
 }
 
 export function ToolProviderList({ workspaceSlug }: { workspaceSlug: string }) {
@@ -111,7 +54,7 @@ export function ToolProviderList({ workspaceSlug }: { workspaceSlug: string }) {
       if (!endpointUrl.trim()) {
         throw new Error("Endpoint URL is required");
       }
-      const result = await postJson<ControlPlaneToolProvider>("/api/control-plane/tool-providers", {
+      const result = await createToolProvider({
         name: name.trim(),
         provider_type: providerType,
         endpoint_url: endpointUrl.trim(),
@@ -136,12 +79,7 @@ export function ToolProviderList({ workspaceSlug }: { workspaceSlug: string }) {
 
   const updateStatusMutation = useMutation({
     mutationFn: async (args: { providerId: string; status: "active" | "disabled" }) => {
-      if (args.status === "disabled") {
-        return postJson<ControlPlaneToolProvider>(`/api/control-plane/tool-providers/${args.providerId}/disable`, {});
-      }
-      return postJson<ControlPlaneToolProvider>(`/api/control-plane/tool-providers/${args.providerId}`, {
-        status: "active",
-      });
+      return updateToolProviderStatus(args.providerId, args.status);
     },
     onSuccess: async ({ planLimit: nextPlanLimit }) => {
       setActionError(null);

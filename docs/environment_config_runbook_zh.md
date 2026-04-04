@@ -52,8 +52,9 @@
 本輪自助計費切片新增了 Stripe checkout 與 provider webhook/portal 相關能力，建議在 staging / production 以 Worker vars + secrets 方式管理以下欄位：
 
 - `BILLING_SELF_SERVE_PROVIDER`
-  - 建議值：`stripe` 或 `mock_checkout`
-  - 作用：決定 workspace 自助升級優先使用哪個 provider
+  - 建議值：`stripe`（production / staging）或 `mock_checkout`（僅作為 local/staging/test 測試 fallback）
+  - 作用：決定 workspace 自助升級優先使用哪個 provider；`mock_checkout` 只能在 `allowMockCheckout` 顯式打開、或 local/staging/test smoke 中使用，不應成為 production 的預設 self-serve provider。
+  - `resolveWorkspaceCheckoutProvider` 會依照此設定判斷正式 self-serve provider，若未配置 Stripe 且 `allowMockCheckout` 未開啟，會立即回傳 `null` 並觸發 `billing_self_serve_not_configured`，避免 production 環境誤用 mock。
 - `BILLING_RETURN_BASE_URL`
   - 例如：`https://govrail.net`
   - 作用：生成 checkout 完成後返回的 settings review URL

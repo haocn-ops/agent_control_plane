@@ -8,7 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { revokeApiKey, rotateApiKey, fetchApiKeys } from "@/services/control-plane";
+import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
+import {
+  ControlPlaneRequestError,
+  fetchApiKeys,
+  fetchCurrentWorkspace,
+  revokeApiKey,
+  rotateApiKey,
+} from "@/services/control-plane";
 import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
 
 function formatScope(scope: string[]): string {
@@ -45,6 +52,20 @@ function normalizeScope(value: string): string[] {
 
 type ApiKeysSource = "admin-attention" | "admin-readiness" | "onboarding";
 type DeliveryContext = "recent_activity";
+type RecentTrackKey = "verification" | "go_live";
+type OnboardingSurface =
+  | "onboarding"
+  | "members"
+  | "service_accounts"
+  | "service-accounts"
+  | "api_keys"
+  | "api-keys"
+  | "playground"
+  | "verification"
+  | "usage"
+  | "settings"
+  | "go_live"
+  | "go-live";
 
 function normalizeSource(source?: string | null): ApiKeysSource | null {
   if (source === "admin-attention" || source === "admin-readiness" || source === "onboarding") {
@@ -57,7 +78,7 @@ function normalizeDeliveryContext(value?: string | null): DeliveryContext | null
   return value === "recent_activity" ? "recent_activity" : null;
 }
 
-function normalizeRecentTrackKey(value?: string | null): "verification" | "go_live" | null {
+function normalizeRecentTrackKey(value?: string | null): RecentTrackKey | null {
   if (value === "verification" || value === "go_live") {
     return value;
   }
@@ -88,55 +109,8 @@ function normalizeEvidenceCount(value?: number | string | null): number | null {
   return null;
 }
 
-type HandoffLinkArgs = {
-  pathname: string;
-  source?: ApiKeysSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: DeliveryContext | null;
-  recentTrackKey?: "verification" | "go_live" | null;
-  recentUpdateKind?: ControlPlaneAdminDeliveryUpdateKind | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-};
-
-function buildApiKeysHref(args: HandoffLinkArgs): string {
-  const [basePath, rawQuery] = args.pathname.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  const query = searchParams.toString();
-  return query ? `${basePath}?${query}` : basePath;
-}
-
 function describeRecentDeliverySummary(args: {
-  recentTrackKey?: "verification" | "go_live" | null;
+  recentTrackKey?: RecentTrackKey | null;
   recentUpdateKind?: ControlPlaneAdminDeliveryUpdateKind | null;
   evidenceCount?: number | null;
   recentOwnerLabel?: string | null;
@@ -150,6 +124,85 @@ function describeRecentDeliverySummary(args: {
     args.recentOwnerLabel ? `owner ${args.recentOwnerLabel}` : null,
   ].filter(Boolean);
   return parts.length ? `Latest admin context: ${parts.join(" · ")}.` : "";
+}
+
+function formatApiKeyActionError(error: unknown): string {
+  if (error instanceof ControlPlaneRequestError) {
+    if (error.code === "api_key_limit_reached") {
+      return `API key limits have been reached (code ${error.code}). ${error.message}`;
+    }
+    return `API key action failed: ${error.message ?? error.code ?? "unknown error"}`;
+  }
+  return "API key action failed. Check workspace permissions.";
+}
+
+function toSurfacePath(surface: OnboardingSurface): string {
+  if (surface === "service_accounts" || surface === "service-accounts") {
+    return "/service-accounts";
+  }
+  if (surface === "api_keys" || surface === "api-keys") {
+    return "/api-keys";
+  }
+  if (surface === "verification") {
+    return "/verification?surface=verification";
+  }
+  if (surface === "go_live" || surface === "go-live") {
+    return "/go-live?surface=go_live";
+  }
+  return `/${surface}`;
+}
+
+function getApiKeysGuide(args: {
+  onboarding?: {
+    checklist: {
+      baseline_ready: boolean;
+      service_account_created: boolean;
+      api_key_created: boolean;
+      demo_run_created: boolean;
+      demo_run_succeeded: boolean;
+    };
+    blockers?: Array<{ message: string }> | null;
+    recommended_next_surface?: OnboardingSurface | null;
+    recommended_next_action?: string | null;
+    recommended_next_reason?: string | null;
+  } | null;
+}): { body: string; actionLabel: string; actionSurface: OnboardingSurface; blockers: string[] } {
+  const blockers =
+    args.onboarding?.blockers && args.onboarding.blockers.length > 0
+      ? args.onboarding.blockers.map((item) => item.message)
+      : [
+          args.onboarding?.checklist.baseline_ready ? null : "Baseline bootstrap is not complete yet.",
+          args.onboarding?.checklist.service_account_created ? null : "Service account is still missing.",
+          args.onboarding?.checklist.api_key_created ? null : "API key is still missing.",
+          args.onboarding?.checklist.demo_run_created && !args.onboarding.checklist.demo_run_succeeded
+            ? "Demo run exists but has not succeeded yet."
+            : null,
+        ].filter((item): item is string => item !== null);
+
+  if (args.onboarding?.recommended_next_surface && args.onboarding.recommended_next_surface !== "api_keys") {
+    return {
+      body:
+        args.onboarding.recommended_next_reason ??
+        "API key setup is no longer the primary blocker. Continue with recommended onboarding surface.",
+      actionLabel: args.onboarding.recommended_next_action ?? "Continue onboarding",
+      actionSurface: args.onboarding.recommended_next_surface,
+      blockers,
+    };
+  }
+  if (args.onboarding?.checklist.demo_run_succeeded !== true) {
+    return {
+      body: "After key setup, invoke Playground to create or confirm the first successful demo run.",
+      actionLabel: "Open Playground",
+      actionSurface: "playground",
+      blockers,
+    };
+  }
+  return {
+    body: "Demo run has succeeded. Move to verification and record onboarding evidence.",
+    actionLabel: "Open Verification",
+    actionSurface: "verification",
+    blockers,
+  };
 }
 
 
@@ -199,11 +252,16 @@ export function ApiKeysPanel({
     queryKey: ["workspace-api-keys", workspaceSlug],
     queryFn: fetchApiKeys,
   });
+  const workspaceQuery = useQuery({
+    queryKey: ["workspace-onboarding-state", workspaceSlug],
+    queryFn: fetchCurrentWorkspace,
+  });
 
   const keys = data ?? [];
   const [expandedKeyId, setExpandedKeyId] = useState<string | null>(null);
   const [revealedSecrets, setRevealedSecrets] = useState<Record<string, string>>({});
   const [rotateForms, setRotateForms] = useState<Record<string, RotateFormState>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const normalizedSource = normalizeSource(source);
   const normalizedDeliveryContext = normalizeDeliveryContext(deliveryContext);
@@ -229,21 +287,41 @@ export function ApiKeysPanel({
     recentUpdateKind: normalizedRecentUpdateKind,
     evidenceCount: normalizedEvidenceCount,
     recentOwnerLabel,
-  } satisfies Omit<HandoffLinkArgs, "pathname">;
-  const serviceAccountsHref = buildApiKeysHref({ pathname: "/service-accounts", ...handoffHrefArgs });
-  const playgroundHref = buildApiKeysHref({ pathname: "/playground", ...handoffHrefArgs });
-  const verificationHref = buildApiKeysHref({ pathname: "/verification", ...handoffHrefArgs });
+  };
+  const serviceAccountsHref = buildVerificationChecklistHandoffHref({ pathname: "/service-accounts", ...handoffHrefArgs });
+  const playgroundHref = buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs });
+  const verificationHref = buildVerificationChecklistHandoffHref({
+    pathname: "/verification?surface=verification",
+    ...handoffHrefArgs,
+  });
+  const onboardingGuide = getApiKeysGuide({
+    onboarding: workspaceQuery.data?.onboarding ?? null,
+  });
+  const onboardingGuideHref = buildVerificationChecklistHandoffHref({
+    pathname: toSurfacePath(onboardingGuide.actionSurface),
+    ...handoffHrefArgs,
+  });
 
   const revokeMutation = useMutation({
+    onMutate: () => {
+      setActionError(null);
+    },
     mutationFn: revokeApiKey,
     onSuccess: async () => {
+      setActionError(null);
       await queryClient.invalidateQueries({
         queryKey: ["workspace-api-keys", workspaceSlug],
       });
     },
+    onError: (error: unknown) => {
+      setActionError(formatApiKeyActionError(error));
+    },
   });
 
   const rotateMutation = useMutation({
+    onMutate: () => {
+      setActionError(null);
+    },
     mutationFn: async (input: {
       apiKeyId: string;
       serviceAccountId?: string;
@@ -269,6 +347,10 @@ export function ApiKeysPanel({
       await queryClient.invalidateQueries({
         queryKey: ["workspace-api-keys", workspaceSlug],
       });
+      setActionError(null);
+    },
+    onError: (error: unknown) => {
+      setActionError(formatApiKeyActionError(error));
     },
   });
 
@@ -297,6 +379,7 @@ export function ApiKeysPanel({
       <CardContent className="space-y-3">
         {isLoading ? <p className="text-sm text-muted">Loading API keys...</p> : null}
         {isError ? <p className="text-sm text-muted">API keys endpoint unavailable, showing fallback state.</p> : null}
+        {actionError ? <p className="text-xs text-red-600">{actionError}</p> : null}
         {!isLoading && sortedKeys.length === 0 ? (
           <p className="text-sm text-muted">No API keys found for this workspace yet.</p>
         ) : null}
@@ -329,6 +412,28 @@ export function ApiKeysPanel({
                 Capture Week 8 evidence
               </Link>
           </div>
+        </Card>
+        <Card className="rounded-2xl border border-border bg-card p-4 text-sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Onboarding handoff</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-xs text-muted">
+            <p>{onboardingGuide.body}</p>
+            <Link
+              href={onboardingGuideHref}
+              className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+            >
+              {onboardingGuide.actionLabel}
+            </Link>
+            {onboardingGuide.blockers.length > 0 ? (
+              <div className="space-y-1">
+                <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Current blockers</p>
+                {onboardingGuide.blockers.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
         </Card>
 
         {metadataDescription ? (
@@ -495,12 +600,6 @@ export function ApiKeysPanel({
           );
         })}
 
-        {revokeMutation.isError ? (
-          <p className="text-xs text-muted">API key revoke failed. Check workspace permissions and retry.</p>
-        ) : null}
-        {rotateMutation.isError ? (
-          <p className="text-xs text-muted">API key rotate failed. Check workspace permissions and key state.</p>
-        ) : null}
       </CardContent>
     </Card>
   );

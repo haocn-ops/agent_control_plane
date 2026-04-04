@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
+import { buildAdminReturnHref } from "@/lib/handoff-query";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
 
 type DrillState = "ready" | "attention" | "pending";
@@ -19,6 +21,7 @@ type DrillStep = {
 
 type GoLiveSource = "admin-attention" | "admin-readiness" | "onboarding";
 type DeliveryContext = "recent_activity";
+type RecentTrackKey = "verification" | "go_live";
 
 function stateLabel(state: DrillState): string {
   if (state === "ready") {
@@ -59,84 +62,11 @@ function normalizeDeliveryContext(value?: string | null): DeliveryContext | null
   return value === "recent_activity" ? "recent_activity" : null;
 }
 
-function normalizeRecentTrackKey(value?: string | null): "verification" | "go_live" | null {
+function normalizeRecentTrackKey(value?: string | null): RecentTrackKey | null {
   if (value === "verification" || value === "go_live") {
     return value;
   }
   return null;
-}
-
-function buildDrillHref(args: {
-  pathname: string;
-  source?: GoLiveSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: DeliveryContext | null;
-  recentTrackKey?: "verification" | "go_live" | null;
-  recentUpdateKind?: string | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-}): string {
-  const [basePath, rawQuery] = args.pathname.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  const query = searchParams.toString();
-  return query ? `${basePath}?${query}` : basePath;
-}
-
-function buildAdminReturnHref(args: {
-  source?: GoLiveSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  recentTrackKey?: "verification" | "go_live" | null;
-}): string {
-  const searchParams = new URLSearchParams();
-  if (args.source === "admin-attention") {
-    if (args.recentTrackKey) {
-      searchParams.set("queue_surface", args.recentTrackKey);
-    }
-    searchParams.set("queue_returned", "1");
-  }
-  if (args.source === "admin-readiness" && args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-    searchParams.set("readiness_returned", "1");
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  const query = searchParams.toString();
-  return query ? `/admin?${query}` : "/admin";
 }
 
 export function MockGoLiveDrillPanel({
@@ -176,7 +106,7 @@ export function MockGoLiveDrillPanel({
   const normalizedSource = normalizeSource(source);
   const normalizedRecentTrackKey = normalizeRecentTrackKey(recentTrackKey);
   const buildHref = (pathname: string): string =>
-    buildDrillHref({
+    buildVerificationChecklistHandoffHref({
       pathname,
       source: normalizedSource,
       week8Focus,
@@ -188,12 +118,12 @@ export function MockGoLiveDrillPanel({
       evidenceCount,
       recentOwnerLabel,
     });
-  const adminReturnHref = buildAdminReturnHref({
+  const adminReturnHref = buildAdminReturnHref("/admin", {
     source: normalizedSource,
+    queueSurface: normalizedRecentTrackKey,
     week8Focus,
-    attentionWorkspace,
+    attentionWorkspace: attentionWorkspace ?? workspaceSlug,
     attentionOrganization,
-    recentTrackKey: normalizedRecentTrackKey,
   });
   const phases: Array<{ title: string; description: string; steps: DrillStep[] }> = [
     {
@@ -263,7 +193,7 @@ export function MockGoLiveDrillPanel({
           id: "verification-complete",
           title: "Week 8 verification checklist reviewed",
           description: "The structured onboarding, billing, run, and evidence checks have been walked through.",
-          href: buildHref("/verification"),
+          href: buildHref("/verification?surface=verification"),
           state: onboarding?.checklist.demo_run_created ? "ready" : "attention",
         },
         {

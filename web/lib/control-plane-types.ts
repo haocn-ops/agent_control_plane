@@ -197,6 +197,36 @@ export type ControlPlaneWorkspaceBillingProviders = {
 
 export type ControlPlaneWorkspaceSsoProtocol = "oidc" | "saml";
 
+export type ControlPlaneWorkspaceSsoSaveRequest = {
+  enabled?: boolean | null;
+  provider_type?: ControlPlaneWorkspaceSsoProtocol | null;
+  connection_mode?: "workspace";
+  metadata_url?: string | null;
+  issuer_url?: string | null;
+  entrypoint_url?: string | null;
+  audience?: string | null;
+  domain?: string | null;
+  email_domain?: string | null;
+  email_domains?: string[] | null;
+  client_id?: string | null;
+  signing_certificate?: string | null;
+  notes?: string | null;
+};
+
+export type ControlPlaneContractIssue = {
+  code: string;
+  message: string;
+  status: number | null;
+  retryable: boolean;
+  details: Record<string, unknown>;
+};
+
+export type ControlPlaneContractMeta = {
+  source: "live" | "fallback_feature_gate" | "fallback_control_plane_unavailable" | "fallback_error";
+  normalized_at: string;
+  issue: ControlPlaneContractIssue | null;
+};
+
 export type ControlPlaneWorkspaceSsoReadiness = {
   feature: "sso";
   feature_enabled: boolean;
@@ -207,6 +237,23 @@ export type ControlPlaneWorkspaceSsoReadiness = {
   next_steps: string[];
   upgrade_href: string | null;
   plan_code: string | null;
+  enabled?: boolean;
+  configured?: boolean;
+  configuration_state?: "not_configured" | "configured";
+  availability_status?: "available";
+  delivery_status?: "staged" | "ga";
+  readiness_version?: string;
+  configured_at?: string | null;
+  issuer_url?: string | null;
+  metadata_url?: string | null;
+  entrypoint_url?: string | null;
+  email_domain?: string | null;
+  email_domains?: string[];
+  client_id?: string | null;
+  audience?: string | null;
+  signing_certificate?: string | null;
+  notes?: string | null;
+  contract_meta?: ControlPlaneContractMeta;
 };
 
 export type ControlPlaneWorkspaceDedicatedEnvironmentReadiness = {
@@ -219,7 +266,55 @@ export type ControlPlaneWorkspaceDedicatedEnvironmentReadiness = {
   next_steps: string[];
   upgrade_href: string | null;
   plan_code: string | null;
+  enabled?: boolean;
+  configured?: boolean;
+  configuration_state?: "not_configured" | "configured";
+  availability_status?: "available";
+  delivery_status?: "staged" | "ga";
+  readiness_version?: string;
+  configured_at?: string | null;
+  network_boundary?: string | null;
+  compliance_notes?: string | null;
+  requester_email?: string | null;
+  data_classification?: "internal" | "restricted" | "external" | null;
+  requested_capacity?: string | null;
+  requested_sla?: string | null;
+  notes?: string | null;
+  contract_meta?: ControlPlaneContractMeta;
 };
+
+export type ControlPlaneWorkspaceDedicatedEnvironmentSaveRequest = {
+  enabled?: boolean | null;
+  deployment_model?: "single_tenant" | "pooled_with_isolation";
+  target_region?: string | null;
+  isolation_summary?: string | null;
+  network_boundary?: string | null;
+  compliance_notes?: string | null;
+  requester_email?: string | null;
+  data_classification?: "internal" | "restricted" | "external" | null;
+  requested_capacity?: string | null;
+  requested_sla?: string | null;
+  notes?: string | null;
+};
+
+export type ControlPlaneWorkspaceAuditExportViewModel =
+  | {
+      ok: true;
+      blob: Blob;
+      filename: string;
+      format: "json" | "jsonl";
+      content_type: string | null;
+      contract_meta: ControlPlaneContractMeta;
+    }
+  | {
+      ok: false;
+      blob: null;
+      filename: null;
+      format: "json" | "jsonl";
+      content_type: string | null;
+      error: ControlPlaneContractIssue;
+      contract_meta: ControlPlaneContractMeta;
+    };
 
 export type ControlPlaneAdminOverview = {
   summary: {
@@ -256,6 +351,7 @@ export type ControlPlaneAdminOverview = {
     created_at: string;
   }>;
   updated_at: string;
+  contract_meta?: ControlPlaneContractMeta;
 };
 
 export type ControlPlaneDeliveryGovernance = {
@@ -377,6 +473,7 @@ export type ControlPlaneWorkspaceDeliveryTrack = {
   workspace_id: string;
   verification: ControlPlaneDeliveryTrackSection;
   go_live: ControlPlaneDeliveryTrackSection;
+  contract_meta?: ControlPlaneContractMeta;
 };
 
 export type ControlPlaneDeliveryTrackSectionInput = {
@@ -439,7 +536,73 @@ export type ControlPlaneWorkspaceOnboardingState = {
     updated_at: string;
     completed_at: string | null;
   } | null;
+  latest_demo_run_hint?: {
+    status_label: string;
+    is_terminal: boolean;
+    needs_attention: boolean;
+    suggested_action: string | null;
+  } | null;
   next_actions: string[];
+  blockers?: Array<{
+    code: string;
+    severity?: "blocking" | "warning";
+    message: string;
+    surface?:
+      | "onboarding"
+      | "members"
+      | "service_accounts"
+      | "service-accounts"
+      | "api_keys"
+      | "api-keys"
+      | "playground"
+      | "verification"
+      | "usage"
+      | "settings"
+      | "go_live"
+      | "go-live"
+      | null;
+    retryable?: boolean;
+  }>;
+  recommended_next?: {
+    surface:
+      | "onboarding"
+      | "members"
+      | "service_accounts"
+      | "service-accounts"
+      | "api_keys"
+      | "api-keys"
+      | "playground"
+      | "verification"
+      | "usage"
+      | "settings"
+      | "go_live"
+      | "go-live";
+    action: string;
+    reason: string;
+  } | null;
+  recommended_next_surface?:
+    | "onboarding"
+    | "members"
+    | "service_accounts"
+    | "service-accounts"
+    | "api_keys"
+    | "api-keys"
+    | "playground"
+    | "verification"
+    | "usage"
+    | "settings"
+    | "go_live"
+    | "go-live"
+    | null;
+  recommended_next_action?: string | null;
+  recommended_next_reason?: string | null;
+  delivery_guidance?: {
+    verification_status: ControlPlaneDeliveryTrackStatus;
+    go_live_status: ControlPlaneDeliveryTrackStatus;
+    next_surface: "onboarding" | "verification" | "go_live" | "go-live";
+    summary: string;
+    updated_at: string | null;
+  } | null;
 };
 
 export type ControlPlaneWorkspaceCreateResult = {

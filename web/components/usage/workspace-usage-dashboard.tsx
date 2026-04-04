@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
+import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
@@ -92,16 +93,22 @@ type ContextCard = {
   metaLines?: string[];
 };
 
-function getContextCard(source: UsageSource | null, metadata: { summaryLines: string[] }): ContextCard | null {
+function getContextCard(
+  source: UsageSource | null,
+  metadata: { summaryLines: string[]; onboardingLines?: string[] },
+): ContextCard | null {
   if (!source) {
     return null;
   }
+  const metaLines = [...metadata.summaryLines, ...(metadata.onboardingLines ?? [])].filter(
+    (line): line is string => typeof line === "string" && line.trim() !== "",
+  );
   if (source === "admin-readiness") {
     return {
       title: "Admin readiness follow-up",
       body:
         "You arrived here from the Week 8 readiness summary. This dashboard stays read-only for usage pressure—record evidence and keep navigation cues aligned with the originating focus before returning to the admin view.",
-      metaLines: metadata.summaryLines.length > 0 ? metadata.summaryLines : undefined,
+      metaLines: metaLines.length > 0 ? metaLines : undefined,
     };
   }
   if (source === "admin-attention") {
@@ -110,10 +117,10 @@ function getContextCard(source: UsageSource | null, metadata: { summaryLines: st
       body:
         "You arrived here from an admin follow-up path. Review usage pressure as supporting evidence, then continue manually into verification, go-live, or settings before returning to the admin queue.",
       actions: [
-        { label: "Return to verification", path: "/verification" },
+        { label: "Return to verification", path: "/verification?surface=verification" },
         { label: "Review billing + settings", path: "/settings" },
       ],
-      metaLines: metadata.summaryLines.length > 0 ? metadata.summaryLines : undefined,
+      metaLines: metaLines.length > 0 ? metaLines : undefined,
     };
   }
   if (source === "onboarding") {
@@ -122,65 +129,81 @@ function getContextCard(source: UsageSource | null, metadata: { summaryLines: st
       body:
         "Now that the playground run is complete, confirm the invited admins and that the onboarding service account used in the demo exists. Capture the run_id/trace_id so verification notes can cite them before moving to settings or billing follow-up.",
       actions: [
-        { label: "Capture verification evidence", path: "/verification" },
+        { label: "Capture verification evidence", path: "/verification?surface=verification" },
         { label: "Review billing + features", path: "/settings" },
       ],
-      metaLines: metadata.summaryLines.length > 0 ? metadata.summaryLines : undefined,
+      metaLines: metaLines.length > 0 ? metaLines : undefined,
     };
   }
   return null;
 }
 
-function getFirstRunCallout(): { title: string; body: string } {
+function getFirstRunCallout(args: {
+  onboardingState: {
+    checklist: {
+      demo_run_created: boolean;
+      demo_run_succeeded: boolean;
+      service_account_created: boolean;
+      api_key_created: boolean;
+      baseline_ready: boolean;
+    };
+    latest_demo_run_hint?: {
+      status_label: string;
+      is_terminal: boolean;
+      needs_attention: boolean;
+      suggested_action: string | null;
+    } | null;
+    delivery_guidance?: {
+      verification_status: string;
+      go_live_status: string;
+      summary: string;
+    } | null;
+  } | null;
+}): { title: string; body: string; metaLines: string[] } {
+  const latestDemoRunHint = args.onboardingState?.latest_demo_run_hint ?? null;
+  const deliveryGuidance = args.onboardingState?.delivery_guidance ?? null;
+  const metaLines = [
+    latestDemoRunHint?.status_label,
+    latestDemoRunHint?.suggested_action,
+    deliveryGuidance?.summary,
+  ].filter((line): line is string => typeof line === "string" && line.trim() !== "");
+
+  if (latestDemoRunHint?.needs_attention) {
+    return {
+      title: latestDemoRunHint.is_terminal ? "Recover the latest demo signal" : "Monitor the latest demo signal",
+      body:
+        latestDemoRunHint.suggested_action ??
+        "Keep the first demo run under observation until it settles, then capture verification evidence.",
+      metaLines,
+    };
+  }
+
+  if (args.onboardingState?.checklist.demo_run_succeeded) {
+    return {
+      title: "Governed first demo signal",
+      body:
+        deliveryGuidance?.summary ??
+        "A successful first run should leave a usage trace we can point to in the Week 8 checklist. Confirm `billing_summary` shows the assigned plan, run a workspace demo through the Playground, and capture the `run_id`/`trace_id` before moving to verification or API key follow-up.",
+      metaLines,
+    };
+  }
+
+  if (args.onboardingState?.checklist.demo_run_created) {
+    return {
+      title: "Governed first demo signal",
+      body:
+        latestDemoRunHint?.status_label ??
+        "A demo run exists. Use it as the first governed usage trace, then continue into verification evidence capture.",
+      metaLines,
+    };
+  }
+
   return {
     title: "Governed first demo signal",
-    body: "A successful first run should leave a usage trace we can point to in the Week 8 checklist. Confirm `billing_summary` shows the assigned plan, run a workspace demo through the Playground, and capture the `run_id`/`trace_id` before moving to verification or API key follow-up.",
+    body:
+      "A successful first run should leave a usage trace we can point to in the Week 8 checklist. Confirm `billing_summary` shows the assigned plan, run a workspace demo through the Playground, and capture the `run_id`/`trace_id` before moving to verification or API key follow-up.",
+    metaLines,
   };
-}
-
-function buildFollowUpHref(args: {
-  pathname: string;
-  source: UsageSource | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: DeliveryContext | null;
-  recentTrackKey?: "verification" | "go_live" | null;
-  recentUpdateKind?: ControlPlaneAdminDeliveryUpdateKind | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-}): string {
-  if (!args.source) {
-    return args.pathname;
-  }
-  const searchParams = new URLSearchParams();
-  searchParams.set("source", args.source);
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  const query = searchParams.toString();
-  return query ? `${args.pathname}?${query}` : args.pathname;
 }
 
 function formatPrice(monthlyPriceCents: number): string {
@@ -258,11 +281,27 @@ function statusToneBadgeVariant(tone?: string): "strong" | "default" | "subtle" 
   return "subtle";
 }
 
-function billingActionHelpText(availability?: string): string {
-  if (availability === "staged") {
-    return "This is a staged self-serve entry. Checkout is not live yet; next step is manual/support-assisted plan processing.";
+function billingActionHelpText(args: {
+  availability?: string;
+  provider?: string | null;
+  selfServeEnabled?: boolean;
+}): string {
+  const normalizedProvider = (args.provider ?? "").toLowerCase();
+  const providerIsMock = normalizedProvider === "mock_checkout" || normalizedProvider === "mock";
+  if (providerIsMock) {
+    return "Mock checkout is a test-only fallback; rely on Stripe when it is enabled for production self-serve.";
   }
-  return "This action is ready for workspace operators.";
+  const provider = (args.provider ?? "").toLowerCase();
+  if (args.availability === "ready" && provider === "stripe") {
+    return "Self-serve is live through Stripe-hosted checkout and portal flows.";
+  }
+  if (args.availability === "ready") {
+    return "This action is available now for workspace operators in the current billing provider flow.";
+  }
+  if (args.selfServeEnabled) {
+    return "Billing is enabled, but this action is temporarily unavailable. Retry after the provider state refreshes.";
+  }
+  return "Self-serve billing is not enabled for this workspace yet. Use the configured workspace-managed fallback path.";
 }
 
 function isEnabledFeature(value: unknown): boolean {
@@ -298,6 +337,9 @@ export function WorkspaceUsageDashboard({
   });
 
   const normalizedSource = normalizeSource(source);
+  const onboardingState = data?.onboarding ?? null;
+  const latestDemoRunHint = onboardingState?.latest_demo_run_hint ?? null;
+  const deliveryGuidance = onboardingState?.delivery_guidance ?? null;
   const contextCard = getContextCard(normalizedSource, {
     summaryLines: buildMetadataLines({
       track: normalizeRecentTrackKey(recentTrackKey),
@@ -305,8 +347,24 @@ export function WorkspaceUsageDashboard({
       evidence: evidenceCount ?? normalizeEvidenceCount(evidenceCount),
       ownerLabel: recentOwnerLabel,
     }),
+    onboardingLines: [
+      latestDemoRunHint?.status_label,
+      latestDemoRunHint?.suggested_action,
+      deliveryGuidance?.summary,
+    ],
   });
-  const firstRunCallout = getFirstRunCallout();
+  const firstRunCallout = getFirstRunCallout({ onboardingState });
+  const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>[0], "pathname"> = {
+    source: normalizedSource,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    deliveryContext: normalizeDeliveryContext(deliveryContext),
+    recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
+    recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
+    evidenceCount,
+    recentOwnerLabel,
+  };
 
   const workspace = data?.workspace;
   const plan = data?.plan;
@@ -327,54 +385,28 @@ export function WorkspaceUsageDashboard({
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <p className="text-muted">{firstRunCallout.body}</p>
+          {firstRunCallout.metaLines.length > 0 ? (
+            <div className="space-y-1 rounded-xl border border-border bg-background p-3 text-xs text-muted">
+              {firstRunCallout.metaLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Link
-              href={buildFollowUpHref({
-                pathname: "/playground",
-                source: normalizedSource,
-                week8Focus,
-                attentionWorkspace,
-                attentionOrganization,
-                deliveryContext: normalizeDeliveryContext(deliveryContext),
-                recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
-                recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
-                evidenceCount,
-                recentOwnerLabel,
-              })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Run a playground demo
             </Link>
             <Link
-              href={buildFollowUpHref({
-                pathname: "/verification",
-                source: normalizedSource,
-                week8Focus,
-                attentionWorkspace,
-                attentionOrganization,
-                deliveryContext: normalizeDeliveryContext(deliveryContext),
-                recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
-                recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
-                evidenceCount,
-                recentOwnerLabel,
-              })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/verification?surface=verification", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Capture evidence in verification
             </Link>
             <Link
-              href={buildFollowUpHref({
-                pathname: "/api-keys",
-                source: normalizedSource,
-                week8Focus,
-                attentionWorkspace,
-                attentionOrganization,
-                deliveryContext: normalizeDeliveryContext(deliveryContext),
-                recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
-                recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
-                evidenceCount,
-                recentOwnerLabel,
-              })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/api-keys", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Review API key scopes
@@ -403,18 +435,7 @@ export function WorkspaceUsageDashboard({
                 {contextCard.actions.map((action) => (
                   <Link
                     key={action.label}
-                    href={buildFollowUpHref({
-                      pathname: action.path,
-                      source: normalizedSource,
-                      week8Focus,
-                      attentionWorkspace,
-                      attentionOrganization,
-                      deliveryContext: normalizeDeliveryContext(deliveryContext),
-                      recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
-                      recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
-                      evidenceCount,
-                      recentOwnerLabel,
-                    })}
+                    href={buildVerificationChecklistHandoffHref({ pathname: action.path, ...handoffHrefArgs })}
                     className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
                   >
                     {action.label}
@@ -506,7 +527,13 @@ export function WorkspaceUsageDashboard({
                 <p className="text-xs text-muted">
                   Next action: {billingSummary.action ? billingSummary.action.label : "Billing action not available"}
                 </p>
-                <p className="text-xs text-muted">{billingActionHelpText(billingSummary.action?.availability)}</p>
+                <p className="text-xs text-muted">
+                  {billingActionHelpText({
+                    availability: billingSummary.action?.availability,
+                    provider: billingSummary.provider,
+                    selfServeEnabled: billingSummary.self_serve_enabled,
+                  })}
+                </p>
               </div>
             </div>
           ) : (

@@ -1,6 +1,8 @@
 import type { ControlPlaneWorkspaceDeliveryTrack } from "@/lib/control-plane-types";
+import { proxyFallbackGet } from "../../fallback-route-helpers";
 import { proxyControlPlane } from "@/lib/control-plane-proxy";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+import { buildProxyControlPlanePostInit } from "../post-route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -20,46 +22,48 @@ function buildFallbackTrack(workspaceId: string): ControlPlaneWorkspaceDeliveryT
     workspace_id: workspaceId,
     verification: buildDefaultSection(now),
     go_live: buildDefaultSection(now),
+    contract_meta: {
+      source: "fallback_error",
+      normalized_at: now,
+      issue: {
+        code: "workspace_delivery_preview_fallback",
+        message: "Delivery track is showing preview fallback data until the live control-plane response is available.",
+        status: null,
+        retryable: true,
+        details: {
+          path: `/api/v1/saas/workspaces/${workspaceId}/delivery`,
+        },
+      },
+    },
   };
 }
 
 export async function GET() {
   const workspaceContext = await resolveWorkspaceContextForServer();
   const workspaceId = workspaceContext.workspace.workspace_id;
-  const upstream = await proxyControlPlane(`/api/v1/saas/workspaces/${workspaceId}/delivery`, {
+  return proxyFallbackGet({
+    path: `/api/v1/saas/workspaces/${workspaceId}/delivery`,
     includeTenant: true,
-  });
-
-  if (upstream.ok) {
-    return upstream;
-  }
-  if (upstream.status !== 404 && upstream.status !== 503) {
-    return upstream;
-  }
-
-  return Response.json({
-    data: buildFallbackTrack(workspaceId),
-    meta: {
-      request_id: "preview-request",
-      trace_id: "preview-trace",
-    },
+    buildFallback: (upstream) => ({
+      data: buildFallbackTrack(workspaceId),
+      meta: {
+        request_id: upstream.status === 503 ? "delivery-preview-unavailable" : "delivery-preview-error",
+        trace_id: upstream.status === 503 ? "delivery-preview-unavailable-trace" : "delivery-preview-error-trace",
+      },
+    }),
   });
 }
 
 export async function POST(request: Request) {
   const workspaceContext = await resolveWorkspaceContextForServer();
   const workspaceId = workspaceContext.workspace.workspace_id;
-  const body = await request.text();
-  const upstream = await proxyControlPlane(`/api/v1/saas/workspaces/${workspaceId}/delivery`, {
-    includeTenant: true,
-    init: {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: body.length === 0 ? undefined : body,
-    },
-  });
 
-  return upstream;
+  return proxyControlPlane(`/api/v1/saas/workspaces/${workspaceId}/delivery`, {
+    includeTenant: true,
+    init: await buildProxyControlPlanePostInit({
+      request,
+      contentType: "application/json",
+      emptyBodyAsUndefined: true,
+    }),
+  });
 }

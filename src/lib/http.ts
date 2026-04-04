@@ -6,6 +6,9 @@ export interface ResponseMeta {
 }
 
 type NorthboundAuthMode = "permissive" | "trusted_edge";
+type NorthboundAuthEnv = {
+  NORTHBOUND_AUTH_MODE?: string | null;
+};
 
 export class ApiError extends Error {
   constructor(
@@ -61,7 +64,7 @@ export async function readJson<T>(request: Request): Promise<T> {
   }
 }
 
-export function getNorthboundAuthMode(env: Env): NorthboundAuthMode {
+export function getNorthboundAuthMode(env: NorthboundAuthEnv): NorthboundAuthMode {
   return env.NORTHBOUND_AUTH_MODE === "trusted_edge" ? "trusted_edge" : "permissive";
 }
 
@@ -90,7 +93,7 @@ export function getNorthboundApiKeyCredential(request: Request): string | null {
   return null;
 }
 
-export function enforceNorthboundAccess(request: Request, env: Env): void {
+export function enforceNorthboundAccess(request: Request, env: NorthboundAuthEnv): void {
   if (getNorthboundAuthMode(env) !== "trusted_edge") {
     return;
   }
@@ -132,7 +135,7 @@ export function getRequiredTenantId(request: Request): string {
   return tenantId;
 }
 
-export function getSubjectId(request: Request, env: Env): string {
+export function getSubjectId(request: Request, env: NorthboundAuthEnv): string {
   if (getNorthboundAuthMode(env) === "trusted_edge") {
     return (
       request.headers.get("cf-access-authenticated-user-email") ??
@@ -149,7 +152,7 @@ export function getSubjectId(request: Request, env: Env): string {
   );
 }
 
-export function getSubjectRoles(request: Request, env: Env): string[] {
+export function getSubjectRoles(request: Request, env: NorthboundAuthEnv): string[] {
   const roleHeaders =
     getNorthboundAuthMode(env) === "trusted_edge"
       ? [

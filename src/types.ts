@@ -515,6 +515,19 @@ export interface WorkspaceDeliveryTrackRow {
   updated_at: string;
 }
 
+export interface WorkspaceEnterpriseFeatureConfigRow {
+  config_id: string;
+  workspace_id: string;
+  organization_id: string;
+  feature_key: "sso" | "dedicated_environment";
+  status: "configured";
+  config_json: string;
+  configured_by_user_id: string | null;
+  configured_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface WorkspaceAccessRow extends WorkspaceRow {
   organization_slug: string;
   organization_display_name: string;

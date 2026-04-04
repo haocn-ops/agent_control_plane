@@ -47,6 +47,7 @@ import {
   getWorkspaceInvitationByTokenHash,
   getWorkspaceByTenantId,
   getWorkspaceDeliveryTrack,
+  getWorkspaceEnterpriseFeatureConfig,
   getWorkspaceMembership,
   getWorkspacePlanSubscription,
   getWorkspacePlanSubscriptionByExternalRef,
@@ -57,6 +58,7 @@ import {
   listWorkspaceServiceAccounts,
   listWorkspaceUsageSummary,
   listWorkspacesForUser,
+  upsertWorkspaceEnterpriseFeatureConfig,
 } from "./lib/saas-db.js";
 import {
   ApiError,
@@ -468,12 +470,26 @@ export async function routeRequest(request: Request, env: Env): Promise<Response
       saasWorkspaceSsoMatch[1] ?? "",
     );
   }
+  if (request.method === "POST" && saasWorkspaceSsoMatch) {
+    return saveSaasWorkspaceSsoConfig(
+      request,
+      env,
+      saasWorkspaceSsoMatch[1] ?? "",
+    );
+  }
 
   const saasWorkspaceDedicatedEnvironmentMatch = url.pathname.match(
     /^\/api\/v1\/saas\/workspaces\/([^/]+)\/dedicated-environment$/,
   );
   if (request.method === "GET" && saasWorkspaceDedicatedEnvironmentMatch) {
     return getSaasWorkspaceDedicatedEnvironmentReadiness(
+      request,
+      env,
+      saasWorkspaceDedicatedEnvironmentMatch[1] ?? "",
+    );
+  }
+  if (request.method === "POST" && saasWorkspaceDedicatedEnvironmentMatch) {
+    return saveSaasWorkspaceDedicatedEnvironmentConfig(
       request,
       env,
       saasWorkspaceDedicatedEnvironmentMatch[1] ?? "",
@@ -770,14 +786,60 @@ interface SaasWorkspaceDeliveryTrackUpdateRequest {
   go_live?: SaasWorkspaceDeliveryTrackSectionInput;
 }
 
+interface SaasWorkspaceSsoConfigRequest {
+  workspace_id?: string;
+  enabled?: boolean | null;
+  provider_type?: string;
+  connection_mode?: string;
+  issuer_url?: string | null;
+  metadata_url?: string | null;
+  entrypoint_url?: string | null;
+  audience?: string | null;
+  domain?: string | null;
+  email_domain?: string | null;
+  email_domains?: string[] | null;
+  client_id?: string | null;
+  signing_certificate?: string | null;
+  notes?: string | null;
+}
+
+interface SaasWorkspaceDedicatedEnvironmentConfigRequest {
+  workspace_id?: string;
+  enabled?: boolean | null;
+  deployment_model?: string;
+  target_region?: string | null;
+  network_boundary?: string | null;
+  compliance_notes?: string | null;
+  requester_email?: string | null;
+  data_classification?: string | null;
+  requested_capacity?: string | null;
+  requested_sla?: string | null;
+  notes?: string | null;
+}
+
 interface SaasWorkspaceSsoReadiness {
   feature: "sso";
   feature_enabled: true;
   enabled: true;
-  status: "not_configured" | "staged";
-  provider_type: null;
+  status: "not_configured" | "configured" | "staged";
+  configured: boolean;
+  configuration_state: "not_configured" | "configured";
+  availability_status: "available";
+  delivery_status: "staged" | "ga";
+  readiness_version: "2026-04";
+  provider_type: "oidc" | "saml" | null;
   connection_mode: "workspace";
   supported_protocols: Array<"oidc" | "saml">;
+  configured_at: string | null;
+  issuer_url: string | null;
+  metadata_url: string | null;
+  entrypoint_url: string | null;
+  audience: string | null;
+  email_domain: string | null;
+  email_domains: string[];
+  client_id: string | null;
+  signing_certificate: string | null;
+  notes: string | null;
   next_steps: string[];
   upgrade_href: null;
   plan_code: string;
@@ -786,9 +848,23 @@ interface SaasWorkspaceSsoReadiness {
 interface SaasWorkspaceDedicatedEnvironmentReadiness {
   feature: "dedicated_environment";
   feature_enabled: true;
+  enabled: true;
   status: "not_configured" | "configured" | "staged";
+  configured: boolean;
+  configuration_state: "not_configured" | "configured";
+  availability_status: "available";
+  delivery_status: "staged" | "ga";
+  readiness_version: "2026-04";
   deployment_model: "single_tenant" | "pooled_with_isolation";
   target_region: string | null;
+  configured_at: string | null;
+  network_boundary: string | null;
+  compliance_notes: string | null;
+  requester_email: string | null;
+  data_classification: "internal" | "restricted" | "external" | null;
+  requested_capacity: string | null;
+  requested_sla: string | null;
+  notes: string | null;
   isolation_summary: string;
   next_steps: string[];
   upgrade_href: null;
@@ -3007,6 +3083,689 @@ async function listSaasWorkspaceBillingProviders(
   return json(buildWorkspaceBillingProviders(subscription, env), buildMeta(request));
 }
 
+function buildEnterpriseFeatureErrorDetails(args: {
+  feature: "sso" | "dedicated_environment" | "audit_export";
+  workspaceId: string;
+  planCode?: string | null;
+}): {
+  feature: "sso" | "dedicated_environment" | "audit_export";
+  workspace_id: string;
+  plan_code: string | null;
+  upgrade_href: string;
+} {
+  return {
+    feature: args.feature,
+    workspace_id: args.workspaceId,
+    plan_code: args.planCode ?? null,
+    upgrade_href: "/settings?intent=upgrade",
+  };
+}
+
+async function deriveEnterpriseDeliveryReadiness(
+  env: Env,
+  workspaceId: string,
+): Promise<{
+  deliveryStatus: "staged" | "ga";
+  verificationStatus: WorkspaceDeliveryTrackRow["status"];
+  goLiveStatus: WorkspaceDeliveryTrackRow["status"];
+}> {
+  const tracks = await listWorkspaceDeliveryTracks(env, workspaceId);
+  const trackMap = new Map(tracks.map((track) => [track.track_key, track]));
+  const verificationStatus = trackMap.get("verification")?.status ?? "pending";
+  const goLiveStatus = trackMap.get("go_live")?.status ?? "pending";
+  const deliveryStatus: "staged" | "ga" =
+    verificationStatus === "complete" && goLiveStatus === "complete" ? "ga" : "staged";
+
+  return {
+    deliveryStatus,
+    verificationStatus,
+    goLiveStatus,
+  };
+}
+
+async function requireWorkspaceEnterpriseFeaturePlan(
+  env: Env,
+  workspace: WorkspaceRow,
+  feature: "sso" | "dedicated_environment",
+): Promise<PricingPlanRow> {
+  const plan = await getPricingPlanById(env, workspace.plan_id);
+  if (!plan || plan.status !== "active") {
+    if (feature === "sso") {
+      throw new ApiError(409, "workspace_plan_unavailable", "Workspace plan is not available for SSO", {
+        ...buildEnterpriseFeatureErrorDetails({
+          feature,
+          workspaceId: workspace.workspace_id,
+          planCode: plan?.code ?? null,
+        }),
+      });
+    }
+
+    throw new ApiError(
+      409,
+      "workspace_plan_unavailable",
+      "Workspace plan is not available for dedicated environment readiness",
+      {
+        ...buildEnterpriseFeatureErrorDetails({
+          feature,
+          workspaceId: workspace.workspace_id,
+          planCode: plan?.code ?? null,
+        }),
+      },
+    );
+  }
+
+  if (!isWorkspacePlanFeatureEnabled(plan, feature)) {
+    if (feature === "sso") {
+      throw new ApiError(
+        409,
+        "workspace_feature_unavailable",
+        "Single sign-on is not available on the current workspace plan",
+        buildEnterpriseFeatureErrorDetails({
+          feature,
+          workspaceId: workspace.workspace_id,
+          planCode: plan.code,
+        }),
+      );
+    }
+
+    throw new ApiError(
+      409,
+      "workspace_feature_unavailable",
+      "Dedicated environment delivery is not available on the current workspace plan",
+      buildEnterpriseFeatureErrorDetails({
+        feature,
+        workspaceId: workspace.workspace_id,
+        planCode: plan.code,
+      }),
+    );
+  }
+
+  return plan;
+}
+
+function describeDeliveryTrackStatus(status: WorkspaceDeliveryTrackRow["status"]): string {
+  switch (status) {
+    case "complete":
+      return "complete";
+    case "in_progress":
+      return "in progress";
+    default:
+      return "pending";
+  }
+}
+
+function describeEnterpriseReadinessSummary(readiness: {
+  verificationStatus: WorkspaceDeliveryTrackRow["status"];
+  goLiveStatus: WorkspaceDeliveryTrackRow["status"];
+}): string {
+  return `Delivery tracks: verification ${describeDeliveryTrackStatus(readiness.verificationStatus)}, go-live ${describeDeliveryTrackStatus(readiness.goLiveStatus)}.`;
+}
+
+function buildVerificationTrackAction(status: WorkspaceDeliveryTrackRow["status"]): string {
+  if (status === "pending") {
+    return "Start the verification track and attach baseline evidence from onboarding runs.";
+  }
+  if (status === "in_progress") {
+    return "Continue verification execution, update evidence links, and close open checks.";
+  }
+  return "Keep verification evidence current for ongoing compliance checks.";
+}
+
+function buildGoLiveTrackAction(status: WorkspaceDeliveryTrackRow["status"]): string {
+  if (status === "pending") {
+    return "Start go-live rehearsal planning and define rollback ownership before cutover.";
+  }
+  if (status === "in_progress") {
+    return "Continue go-live rehearsal and resolve remaining cutover blockers.";
+  }
+  return "Maintain go-live evidence and post-cutover operational checkpoints.";
+}
+
+function normalizeOptionalRequestString(
+  value: string | null | undefined,
+  fieldName: string,
+  maxLength = 4000,
+): string | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new ApiError(400, "invalid_request", `${fieldName} must be a string when provided`);
+  }
+  const trimmed = value.trim();
+  if (trimmed === "") {
+    return null;
+  }
+  return trimmed.slice(0, maxLength);
+}
+
+function normalizeOptionalRequestHttpUrl(
+  value: string | null | undefined,
+  fieldName: string,
+): string | null {
+  const normalized = normalizeOptionalRequestString(value, fieldName, 2000);
+  if (!normalized) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(normalized);
+  } catch {
+    throw new ApiError(400, "invalid_request", `${fieldName} must be a valid absolute URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new ApiError(400, "invalid_request", `${fieldName} must use http or https`);
+  }
+  return parsed.toString();
+}
+
+function normalizeOptionalEmailDomain(
+  value: string | null | undefined,
+  fieldName: string,
+): string | null {
+  const normalized = normalizeOptionalRequestString(value, fieldName, 255)?.toLowerCase() ?? null;
+  if (!normalized) {
+    return null;
+  }
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized)) {
+    throw new ApiError(400, "invalid_request", `${fieldName} must be a valid domain`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalRequestEmail(
+  value: string | null | undefined,
+  fieldName: string,
+): string | null {
+  const normalized = normalizeOptionalRequestString(value, fieldName, 320);
+  if (!normalized) {
+    return null;
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(normalized)) {
+    throw new ApiError(400, "invalid_request", `${fieldName} must be a valid email address`);
+  }
+  return normalized.toLowerCase();
+}
+
+type DedicatedEnvironmentDataClassification = "internal" | "restricted" | "external";
+
+function normalizeOptionalDedicatedEnvironmentDataClassification(
+  value: string | null | undefined,
+  fieldName: string,
+): DedicatedEnvironmentDataClassification | null {
+  const normalized = normalizeOptionalRequestString(value, fieldName, 40)?.toLowerCase() ?? null;
+  if (!normalized) {
+    return null;
+  }
+  if (normalized === "internal" || normalized === "restricted" || normalized === "external") {
+    return normalized;
+  }
+  throw new ApiError(400, "invalid_request", `${fieldName} must be one of: internal, restricted, external`);
+}
+
+function normalizeOptionalEmailDomainList(
+  value: string[] | null | undefined,
+  fieldName: string,
+): string[] {
+  if (value == null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new ApiError(400, "invalid_request", `${fieldName} must be an array when provided`);
+  }
+
+  const domains: string[] = [];
+  const seen = new Set<string>();
+  for (let index = 0; index < value.length; index += 1) {
+    const domain = normalizeOptionalEmailDomain(value[index], `${fieldName}[${index}]`);
+    if (!domain || seen.has(domain)) {
+      continue;
+    }
+    seen.add(domain);
+    domains.push(domain);
+  }
+  return domains;
+}
+
+function appendUniqueDomain(target: string[], domain: string | null): void {
+  if (!domain || target.includes(domain)) {
+    return;
+  }
+  target.push(domain);
+}
+
+function parseStoredEmailDomain(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "" || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+}
+
+function parseStoredEmailDomainList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const domains: string[] = [];
+  for (const item of value) {
+    appendUniqueDomain(domains, parseStoredEmailDomain(item));
+  }
+  return domains;
+}
+
+function assertOptionalWorkspaceBodyIdMatches(
+  value: string | undefined,
+  workspaceId: string,
+): void {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "string" || value.trim() === "") {
+    throw new ApiError(400, "invalid_request", "workspace_id must be a non-empty string when provided");
+  }
+  if (value.trim() !== workspaceId) {
+    throw new ApiError(400, "invalid_request", "workspace_id must match the route workspace id", {
+      workspace_id: value.trim(),
+      route_workspace_id: workspaceId,
+    });
+  }
+}
+
+function normalizeSaasWorkspaceSsoConfigRequest(
+  body: SaasWorkspaceSsoConfigRequest,
+): {
+  workspace_id?: string;
+  provider_type: "oidc" | "saml";
+  issuer_url: string | null;
+  metadata_url: string | null;
+  entrypoint_url: string | null;
+  audience: string | null;
+  email_domain: string | null;
+  email_domains: string[];
+  client_id: string | null;
+  signing_certificate: string | null;
+  notes: string | null;
+} {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError(400, "invalid_request", "request body must be an object");
+  }
+
+  const providerType = typeof body.provider_type === "string" ? body.provider_type.trim().toLowerCase() : "";
+  if (providerType !== "oidc" && providerType !== "saml") {
+    throw new ApiError(400, "invalid_request", "provider_type must be one of: oidc, saml");
+  }
+  if (body.enabled === false) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "enabled must not be false for controlled workspace SSO live writes",
+    );
+  }
+  if (body.connection_mode !== undefined) {
+    const connectionMode = body.connection_mode.trim().toLowerCase();
+    if (connectionMode !== "workspace") {
+      throw new ApiError(
+        400,
+        "invalid_request",
+        "connection_mode must be workspace for controlled workspace SSO live writes",
+      );
+    }
+  }
+
+  const issuerUrl = normalizeOptionalRequestHttpUrl(body.issuer_url, "issuer_url");
+  const metadataUrl = normalizeOptionalRequestHttpUrl(body.metadata_url, "metadata_url");
+  const entrypointUrl = normalizeOptionalRequestHttpUrl(body.entrypoint_url, "entrypoint_url");
+  const audience = normalizeOptionalRequestString(body.audience, "audience", 500);
+  const clientId = normalizeOptionalRequestString(body.client_id, "client_id", 500);
+  const signingCertificate = normalizeOptionalRequestString(body.signing_certificate, "signing_certificate", 8000);
+  const legacyDomain = normalizeOptionalEmailDomain(body.domain, "domain");
+  const primaryEmailDomain = normalizeOptionalEmailDomain(body.email_domain, "email_domain");
+  const domainList = normalizeOptionalEmailDomainList(body.email_domains, "email_domains");
+  const emailDomains: string[] = [];
+  appendUniqueDomain(emailDomains, primaryEmailDomain);
+  appendUniqueDomain(emailDomains, legacyDomain);
+  for (const domain of domainList) {
+    appendUniqueDomain(emailDomains, domain);
+  }
+  const emailDomain = emailDomains[0] ?? null;
+  const notes = normalizeOptionalRequestString(body.notes, "notes");
+  if (!issuerUrl && !metadataUrl && emailDomains.length === 0) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "At least one of issuer_url, metadata_url, email_domain, or email_domains must be provided",
+    );
+  }
+
+  return {
+    ...(body.workspace_id !== undefined ? { workspace_id: body.workspace_id } : {}),
+    provider_type: providerType,
+    issuer_url: issuerUrl,
+    metadata_url: metadataUrl,
+    entrypoint_url: entrypointUrl,
+    audience,
+    email_domain: emailDomain,
+    email_domains: emailDomains,
+    client_id: clientId,
+    signing_certificate: signingCertificate,
+    notes,
+  };
+}
+
+function normalizeSaasWorkspaceDedicatedEnvironmentConfigRequest(
+  body: SaasWorkspaceDedicatedEnvironmentConfigRequest,
+): {
+  workspace_id?: string;
+  deployment_model: "single_tenant" | "pooled_with_isolation";
+  target_region: string;
+  network_boundary: string | null;
+  compliance_notes: string | null;
+  requester_email: string | null;
+  data_classification: DedicatedEnvironmentDataClassification | null;
+  requested_capacity: string | null;
+  requested_sla: string | null;
+  notes: string | null;
+} {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new ApiError(400, "invalid_request", "request body must be an object");
+  }
+
+  const deploymentModel =
+    typeof body.deployment_model === "string" ? body.deployment_model.trim().toLowerCase() : "single_tenant";
+  if (deploymentModel !== "single_tenant" && deploymentModel !== "pooled_with_isolation") {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "deployment_model must be one of: single_tenant, pooled_with_isolation",
+    );
+  }
+  if (body.enabled === false) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "enabled must not be false for controlled dedicated environment live writes",
+    );
+  }
+
+  const targetRegion = normalizeOptionalRequestString(body.target_region, "target_region", 120);
+  if (!targetRegion) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "target_region is required for controlled dedicated environment live writes",
+    );
+  }
+  const requesterEmail = normalizeOptionalRequestEmail(body.requester_email, "requester_email");
+  if (!requesterEmail) {
+    throw new ApiError(
+      400,
+      "invalid_request",
+      "requester_email is required for controlled dedicated environment live writes",
+    );
+  }
+
+  return {
+    ...(body.workspace_id !== undefined ? { workspace_id: body.workspace_id } : {}),
+    deployment_model: deploymentModel,
+    target_region: targetRegion,
+    network_boundary: normalizeOptionalRequestString(body.network_boundary, "network_boundary", 500),
+    compliance_notes: normalizeOptionalRequestString(body.compliance_notes, "compliance_notes", 4000),
+    requester_email: requesterEmail,
+    data_classification: normalizeOptionalDedicatedEnvironmentDataClassification(
+      body.data_classification,
+      "data_classification",
+    ),
+    requested_capacity: normalizeOptionalRequestString(body.requested_capacity, "requested_capacity", 500),
+    requested_sla: normalizeOptionalRequestString(body.requested_sla, "requested_sla", 255),
+    notes: normalizeOptionalRequestString(body.notes, "notes", 4000),
+  };
+}
+
+function parseWorkspaceSsoFeatureConfig(configJson: string | null): {
+  provider_type: "oidc" | "saml" | null;
+  issuer_url: string | null;
+  metadata_url: string | null;
+  entrypoint_url: string | null;
+  audience: string | null;
+  email_domain: string | null;
+  email_domains: string[];
+  client_id: string | null;
+  signing_certificate: string | null;
+  notes: string | null;
+} {
+  const parsed = configJson ? safeParseJsonObject(configJson) : {};
+  const providerType =
+    parsed.provider_type === "oidc" || parsed.provider_type === "saml"
+      ? parsed.provider_type
+      : null;
+  const emailDomains = parseStoredEmailDomainList(parsed.email_domains);
+  appendUniqueDomain(emailDomains, parseStoredEmailDomain(parsed.email_domain));
+  appendUniqueDomain(emailDomains, parseStoredEmailDomain(parsed.domain));
+
+  return {
+    provider_type: providerType,
+    issuer_url: typeof parsed.issuer_url === "string" && parsed.issuer_url.trim() !== "" ? parsed.issuer_url : null,
+    metadata_url:
+      typeof parsed.metadata_url === "string" && parsed.metadata_url.trim() !== "" ? parsed.metadata_url : null,
+    entrypoint_url:
+      typeof parsed.entrypoint_url === "string" && parsed.entrypoint_url.trim() !== "" ? parsed.entrypoint_url : null,
+    audience: typeof parsed.audience === "string" && parsed.audience.trim() !== "" ? parsed.audience : null,
+    email_domain: emailDomains[0] ?? null,
+    email_domains: emailDomains,
+    client_id: typeof parsed.client_id === "string" && parsed.client_id.trim() !== "" ? parsed.client_id : null,
+    signing_certificate:
+      typeof parsed.signing_certificate === "string" && parsed.signing_certificate.trim() !== ""
+        ? parsed.signing_certificate
+        : null,
+    notes: typeof parsed.notes === "string" && parsed.notes.trim() !== "" ? parsed.notes : null,
+  };
+}
+
+function parseWorkspaceDedicatedEnvironmentFeatureConfig(configJson: string | null): {
+  deployment_model: "single_tenant" | "pooled_with_isolation" | null;
+  target_region: string | null;
+  network_boundary: string | null;
+  compliance_notes: string | null;
+  requester_email: string | null;
+  data_classification: DedicatedEnvironmentDataClassification | null;
+  requested_capacity: string | null;
+  requested_sla: string | null;
+  notes: string | null;
+} {
+  const parsed = configJson ? safeParseJsonObject(configJson) : {};
+  const deploymentModel =
+    parsed.deployment_model === "single_tenant" || parsed.deployment_model === "pooled_with_isolation"
+      ? parsed.deployment_model
+      : null;
+
+  return {
+    deployment_model: deploymentModel,
+    target_region:
+      typeof parsed.target_region === "string" && parsed.target_region.trim() !== "" ? parsed.target_region : null,
+    network_boundary:
+      typeof parsed.network_boundary === "string" && parsed.network_boundary.trim() !== ""
+        ? parsed.network_boundary
+        : null,
+    compliance_notes:
+      typeof parsed.compliance_notes === "string" && parsed.compliance_notes.trim() !== ""
+        ? parsed.compliance_notes
+        : null,
+    requester_email:
+      typeof parsed.requester_email === "string" && /^[^\s@]+@[^\s@]+\.[^\s@]+$/i.test(parsed.requester_email.trim())
+        ? parsed.requester_email.trim().toLowerCase()
+        : null,
+    data_classification:
+      parsed.data_classification === "internal" ||
+      parsed.data_classification === "restricted" ||
+      parsed.data_classification === "external"
+        ? parsed.data_classification
+        : null,
+    requested_capacity:
+      typeof parsed.requested_capacity === "string" && parsed.requested_capacity.trim() !== ""
+        ? parsed.requested_capacity
+        : null,
+    requested_sla:
+      typeof parsed.requested_sla === "string" && parsed.requested_sla.trim() !== ""
+        ? parsed.requested_sla
+        : null,
+    notes: typeof parsed.notes === "string" && parsed.notes.trim() !== "" ? parsed.notes : null,
+  };
+}
+
+function formatSsoProviderType(providerType: "oidc" | "saml" | null): string {
+  if (providerType === "oidc") {
+    return "OIDC";
+  }
+  if (providerType === "saml") {
+    return "SAML";
+  }
+  return "SSO";
+}
+
+async function buildSaasWorkspaceSsoReadiness(
+  env: Env,
+  workspace: WorkspaceRow,
+  plan: PricingPlanRow,
+): Promise<SaasWorkspaceSsoReadiness> {
+  const deliveryReadiness = await deriveEnterpriseDeliveryReadiness(env, workspace.workspace_id);
+  const readinessSummary = describeEnterpriseReadinessSummary(deliveryReadiness);
+  const config = await getWorkspaceEnterpriseFeatureConfig(env, workspace.workspace_id, "sso");
+  const parsedConfig = parseWorkspaceSsoFeatureConfig(config?.config_json ?? null);
+  const configured = Boolean(config);
+  const providerLabel = formatSsoProviderType(parsedConfig.provider_type);
+
+  const nextSteps = !configured
+    ? [
+        `${readinessSummary} No ${providerLabel} workspace configuration has been saved yet.`,
+        "Submit provider_type and identity-provider metadata to persist workspace SSO configuration.",
+        deliveryReadiness.verificationStatus !== "complete"
+          ? buildVerificationTrackAction(deliveryReadiness.verificationStatus)
+          : buildGoLiveTrackAction(deliveryReadiness.goLiveStatus),
+      ]
+    : deliveryReadiness.deliveryStatus === "ga"
+      ? [
+          `${readinessSummary} ${providerLabel} configuration is saved and delivery is ready for controlled rollout.`,
+          "Finalize IdP metadata and workspace domain mapping, then enable enforcement for a limited cohort.",
+          "Keep redirect URLs, certificates, and sign-in monitoring in the operational rotation checklist.",
+        ]
+      : deliveryReadiness.verificationStatus !== "complete"
+        ? [
+            `${readinessSummary} ${providerLabel} configuration is saved, but SSO remains staged until verification is complete.`,
+            buildVerificationTrackAction(deliveryReadiness.verificationStatus),
+            "Validate issuer metadata, redirect URLs, and domain mapping in parallel to reduce rollout lead time.",
+          ]
+        : [
+            `${readinessSummary} ${providerLabel} configuration is saved; go-live completion is the remaining blocker.`,
+            buildGoLiveTrackAction(deliveryReadiness.goLiveStatus),
+            "Draft enforcement rollout guardrails and sign-in monitoring before enabling workspace-wide policy.",
+          ];
+
+  return {
+    feature: "sso",
+    feature_enabled: true,
+    enabled: true,
+    status: configured ? "configured" : "not_configured",
+    configured,
+    configuration_state: configured ? "configured" : "not_configured",
+    availability_status: "available",
+    delivery_status: deliveryReadiness.deliveryStatus,
+    readiness_version: "2026-04",
+    provider_type: parsedConfig.provider_type,
+    connection_mode: "workspace",
+    supported_protocols: ["oidc", "saml"],
+    configured_at: config?.configured_at ?? null,
+    issuer_url: parsedConfig.issuer_url,
+    metadata_url: parsedConfig.metadata_url,
+    entrypoint_url: parsedConfig.entrypoint_url,
+    audience: parsedConfig.audience,
+    email_domain: parsedConfig.email_domain,
+    email_domains: parsedConfig.email_domains,
+    client_id: parsedConfig.client_id,
+    signing_certificate: parsedConfig.signing_certificate,
+    notes: parsedConfig.notes,
+    next_steps: nextSteps,
+    upgrade_href: null,
+    plan_code: plan.code,
+  };
+}
+
+async function buildSaasWorkspaceDedicatedEnvironmentReadiness(
+  env: Env,
+  workspace: WorkspaceRow,
+  plan: PricingPlanRow,
+): Promise<SaasWorkspaceDedicatedEnvironmentReadiness> {
+  const deliveryReadiness = await deriveEnterpriseDeliveryReadiness(env, workspace.workspace_id);
+  const readinessSummary = describeEnterpriseReadinessSummary(deliveryReadiness);
+  const config = await getWorkspaceEnterpriseFeatureConfig(env, workspace.workspace_id, "dedicated_environment");
+  const parsedConfig = parseWorkspaceDedicatedEnvironmentFeatureConfig(config?.config_json ?? null);
+  const configured = Boolean(config);
+  const targetRegion = parsedConfig.target_region ?? workspace.data_region;
+  const deploymentModel = parsedConfig.deployment_model ?? "single_tenant";
+
+  const isolationSummary = !configured
+    ? `${readinessSummary} No dedicated environment configuration has been saved yet for this workspace.`
+    : deliveryReadiness.deliveryStatus === "ga"
+      ? `${readinessSummary} Dedicated deployment is configured for ${targetRegion} and ready for rollout.`
+      : `${readinessSummary} Dedicated deployment is configured for ${targetRegion}, but rollout remains staged until delivery tracks close.`;
+
+  const nextSteps = !configured
+    ? [
+        `${readinessSummary} Dedicated environment configuration is still missing.`,
+        "Submit deployment model, target region, and any networking/compliance requirements for persistence.",
+        deliveryReadiness.verificationStatus !== "complete"
+          ? buildVerificationTrackAction(deliveryReadiness.verificationStatus)
+          : buildGoLiveTrackAction(deliveryReadiness.goLiveStatus),
+      ]
+    : deliveryReadiness.deliveryStatus === "ga"
+      ? [
+          "Finalize region, networking, and compliance controls for production cutover.",
+          "Execute tenant isolation validation and support handoff checklist.",
+          "Maintain evidence updates for verification and go-live governance.",
+        ]
+      : deliveryReadiness.verificationStatus !== "complete"
+        ? [
+            `${readinessSummary} Dedicated environment configuration is saved, but verification remains open.`,
+            buildVerificationTrackAction(deliveryReadiness.verificationStatus),
+            `Confirm region (${targetRegion}) and networking prerequisites while verification closes.`,
+          ]
+        : [
+            `${readinessSummary} Dedicated environment configuration is saved; go-live completion is the remaining blocker.`,
+            buildGoLiveTrackAction(deliveryReadiness.goLiveStatus),
+            "Prepare tenant-isolation validation steps and support runbook before scheduling cutover.",
+          ];
+
+  return {
+    feature: "dedicated_environment",
+    feature_enabled: true,
+    enabled: true,
+    status: configured ? "configured" : "not_configured",
+    configured,
+    configuration_state: configured ? "configured" : "not_configured",
+    availability_status: "available",
+    delivery_status: deliveryReadiness.deliveryStatus,
+    readiness_version: "2026-04",
+    deployment_model: deploymentModel,
+    target_region: targetRegion,
+    configured_at: config?.configured_at ?? null,
+    network_boundary: parsedConfig.network_boundary,
+    compliance_notes: parsedConfig.compliance_notes,
+    requester_email: parsedConfig.requester_email,
+    data_classification: parsedConfig.data_classification,
+    requested_capacity: parsedConfig.requested_capacity,
+    requested_sla: parsedConfig.requested_sla,
+    notes: parsedConfig.notes,
+    isolation_summary: isolationSummary,
+    next_steps: nextSteps,
+    upgrade_href: null,
+    plan_code: plan.code,
+  };
+}
+
 async function getSaasWorkspaceSsoReadiness(
   request: Request,
   env: Env,
@@ -3014,42 +3773,8 @@ async function getSaasWorkspaceSsoReadiness(
 ): Promise<Response> {
   const access = await requireSaasWorkspaceAccess(request, env, workspaceId);
   const { workspace } = access;
-  const plan = await getPricingPlanById(env, workspace.plan_id);
-  if (!plan || plan.status !== "active") {
-    throw new ApiError(409, "workspace_plan_unavailable", "Workspace plan is not available for SSO");
-  }
-  if (!isWorkspacePlanFeatureEnabled(plan, "sso")) {
-    throw new ApiError(
-      409,
-      "workspace_feature_unavailable",
-      "Single sign-on is not available on the current workspace plan",
-      {
-        feature: "sso",
-        workspace_id: workspace.workspace_id,
-        plan_code: plan.code,
-        upgrade_href: "/settings?intent=upgrade",
-      },
-    );
-  }
-
-  const readiness: SaasWorkspaceSsoReadiness = {
-    feature: "sso",
-    feature_enabled: true,
-    enabled: true,
-    status: "not_configured",
-    provider_type: null,
-    connection_mode: "workspace",
-    supported_protocols: ["oidc", "saml"],
-    next_steps: [
-      "Choose OIDC or SAML for the workspace identity connection.",
-      "Collect issuer metadata, redirect URLs, and signing certificates from the identity provider.",
-      "Finish workspace domain mapping and enforcement when the runtime auth integration slice lands.",
-    ],
-    upgrade_href: null,
-    plan_code: plan.code,
-  };
-
-  return json(readiness, buildMeta(request));
+  const plan = await requireWorkspaceEnterpriseFeaturePlan(env, workspace, "sso");
+  return json(await buildSaasWorkspaceSsoReadiness(env, workspace, plan), buildMeta(request));
 }
 
 async function getSaasWorkspaceDedicatedEnvironmentReadiness(
@@ -3059,46 +3784,133 @@ async function getSaasWorkspaceDedicatedEnvironmentReadiness(
 ): Promise<Response> {
   const access = await requireSaasWorkspaceAccess(request, env, workspaceId);
   const { workspace } = access;
-  const plan = await getPricingPlanById(env, workspace.plan_id);
-  if (!plan || plan.status !== "active") {
-    throw new ApiError(
-      409,
-      "workspace_plan_unavailable",
-      "Workspace plan is not available for dedicated environment readiness",
-    );
+  const plan = await requireWorkspaceEnterpriseFeaturePlan(env, workspace, "dedicated_environment");
+  return json(await buildSaasWorkspaceDedicatedEnvironmentReadiness(env, workspace, plan), buildMeta(request));
+}
+
+async function saveSaasWorkspaceSsoConfig(
+  request: Request,
+  env: Env,
+  workspaceId: string,
+): Promise<Response> {
+  const access = await requireSaasWorkspaceAdminAccess(
+    request,
+    env,
+    workspaceId,
+    "Only workspace owners or admins can configure workspace SSO",
+  );
+  const { workspace, user } = access;
+  const plan = await requireWorkspaceEnterpriseFeaturePlan(env, workspace, "sso");
+  const idempotencyKey = requireIdempotencyKey(request);
+  const rawBody = await readJson<SaasWorkspaceSsoConfigRequest>(request);
+  const body = normalizeSaasWorkspaceSsoConfigRequest(rawBody);
+  assertOptionalWorkspaceBodyIdMatches(body.workspace_id, workspaceId);
+
+  const routeKey = `POST:/api/v1/saas/workspaces/${workspaceId}/sso`;
+  const payloadHash = await hashPayload(body);
+  const existingRecord = await getIdempotencyRecord(env, workspaceId, routeKey, idempotencyKey);
+  if (existingRecord) {
+    if (existingRecord.payload_hash !== payloadHash) {
+      throw new ApiError(409, "idempotency_conflict", "Idempotency key was already used for another payload");
+    }
+    return json(await buildSaasWorkspaceSsoReadiness(env, workspace, plan), buildMeta(request));
   }
-  if (!isWorkspacePlanFeatureEnabled(plan, "dedicated_environment")) {
-    throw new ApiError(
-      409,
-      "workspace_feature_unavailable",
-      "Dedicated environment delivery is not available on the current workspace plan",
-      {
-        feature: "dedicated_environment",
-        workspace_id: workspace.workspace_id,
-        plan_code: plan.code,
-        upgrade_href: "/settings?intent=upgrade",
-      },
+
+  const existingConfig = await getWorkspaceEnterpriseFeatureConfig(env, workspaceId, "sso");
+  const configId = existingConfig?.config_id ?? createId("wec");
+  const configuredAt = nowIso();
+  await upsertWorkspaceEnterpriseFeatureConfig(env, {
+    configId,
+    workspaceId,
+    organizationId: workspace.organization_id,
+    featureKey: "sso",
+    status: "configured",
+    configJson: JSON.stringify(body),
+    configuredByUserId: user.user_id,
+    configuredAt,
+    createdAt: existingConfig?.created_at ?? configuredAt,
+    updatedAt: configuredAt,
+  });
+
+  await putIdempotencyRecord({
+    env,
+    tenantId: workspaceId,
+    routeKey,
+    idempotencyKey,
+    payloadHash,
+    resourceType: "workspace_enterprise_feature_config",
+    resourceId: configId,
+  });
+
+  return json(
+    await buildSaasWorkspaceSsoReadiness(env, workspace, plan),
+    buildMeta(request),
+    { status: existingConfig ? 200 : 201 },
+  );
+}
+
+async function saveSaasWorkspaceDedicatedEnvironmentConfig(
+  request: Request,
+  env: Env,
+  workspaceId: string,
+): Promise<Response> {
+  const access = await requireSaasWorkspaceAdminAccess(
+    request,
+    env,
+    workspaceId,
+    "Only workspace owners or admins can configure dedicated environment delivery",
+  );
+  const { workspace, user } = access;
+  const plan = await requireWorkspaceEnterpriseFeaturePlan(env, workspace, "dedicated_environment");
+  const idempotencyKey = requireIdempotencyKey(request);
+  const rawBody = await readJson<SaasWorkspaceDedicatedEnvironmentConfigRequest>(request);
+  const body = normalizeSaasWorkspaceDedicatedEnvironmentConfigRequest(rawBody);
+  assertOptionalWorkspaceBodyIdMatches(body.workspace_id, workspaceId);
+
+  const routeKey = `POST:/api/v1/saas/workspaces/${workspaceId}/dedicated-environment`;
+  const payloadHash = await hashPayload(body);
+  const existingRecord = await getIdempotencyRecord(env, workspaceId, routeKey, idempotencyKey);
+  if (existingRecord) {
+    if (existingRecord.payload_hash !== payloadHash) {
+      throw new ApiError(409, "idempotency_conflict", "Idempotency key was already used for another payload");
+    }
+    return json(
+      await buildSaasWorkspaceDedicatedEnvironmentReadiness(env, workspace, plan),
+      buildMeta(request),
     );
   }
 
-  const readiness: SaasWorkspaceDedicatedEnvironmentReadiness = {
-    feature: "dedicated_environment",
-    feature_enabled: true,
-    status: "not_configured",
-    deployment_model: "single_tenant",
-    target_region: workspace.data_region,
-    isolation_summary:
-      "This workspace is eligible for a dedicated single-tenant environment, but provisioning and isolation orchestration are still staged.",
-    next_steps: [
-      "Confirm region, networking, and compliance requirements for the isolated deployment.",
-      "Coordinate provisioning lead time, access boundaries, and support ownership before cutover.",
-      "Complete dedicated environment rollout once the infrastructure orchestration slice lands.",
-    ],
-    upgrade_href: null,
-    plan_code: plan.code,
-  };
+  const existingConfig = await getWorkspaceEnterpriseFeatureConfig(env, workspaceId, "dedicated_environment");
+  const configId = existingConfig?.config_id ?? createId("wec");
+  const configuredAt = nowIso();
+  await upsertWorkspaceEnterpriseFeatureConfig(env, {
+    configId,
+    workspaceId,
+    organizationId: workspace.organization_id,
+    featureKey: "dedicated_environment",
+    status: "configured",
+    configJson: JSON.stringify(body),
+    configuredByUserId: user.user_id,
+    configuredAt,
+    createdAt: existingConfig?.created_at ?? configuredAt,
+    updatedAt: configuredAt,
+  });
 
-  return json(readiness, buildMeta(request));
+  await putIdempotencyRecord({
+    env,
+    tenantId: workspaceId,
+    routeKey,
+    idempotencyKey,
+    payloadHash,
+    resourceType: "workspace_enterprise_feature_config",
+    resourceId: configId,
+  });
+
+  return json(
+    await buildSaasWorkspaceDedicatedEnvironmentReadiness(env, workspace, plan),
+    buildMeta(request),
+    { status: existingConfig ? 200 : 201 },
+  );
 }
 
 async function exportSaasWorkspaceAuditEvents(
@@ -3110,19 +3922,24 @@ async function exportSaasWorkspaceAuditEvents(
   const { workspace } = access;
   const plan = await getPricingPlanById(env, workspace.plan_id);
   if (!plan || plan.status !== "active") {
-    throw new ApiError(409, "workspace_plan_unavailable", "Workspace plan is not available for audit export");
+    throw new ApiError(409, "workspace_plan_unavailable", "Workspace plan is not available for audit export", {
+      ...buildEnterpriseFeatureErrorDetails({
+        feature: "audit_export",
+        workspaceId: workspace.workspace_id,
+        planCode: plan?.code ?? null,
+      }),
+    });
   }
   if (!isWorkspacePlanFeatureEnabled(plan, "audit_export")) {
     throw new ApiError(
       409,
       "workspace_feature_unavailable",
       "Audit export is not available on the current workspace plan",
-      {
+      buildEnterpriseFeatureErrorDetails({
         feature: "audit_export",
-        workspace_id: workspace.workspace_id,
-        plan_code: plan.code,
-        upgrade_href: "/settings?intent=upgrade",
-      },
+        workspaceId: workspace.workspace_id,
+        planCode: plan.code,
+      }),
     );
   }
 
@@ -3528,11 +4345,25 @@ async function createSaasWorkspaceBillingCheckoutSession(
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const checkoutSessionId = createId("chk");
   const stripeCheckoutEnabled = isStripeCheckoutEnabled(env);
+  const configuredSelfServeProvider = getOptionalEnvString(env, "BILLING_SELF_SERVE_PROVIDER");
+  const allowMockCheckout = configuredSelfServeProvider?.toLowerCase() === "mock_checkout";
   const checkoutProvider = resolveWorkspaceCheckoutProvider({
-    preferredProviderCode:
-      getOptionalEnvString(env, "BILLING_SELF_SERVE_PROVIDER") ?? currentSubscription?.billing_provider ?? null,
+    preferredProviderCode: configuredSelfServeProvider ?? currentSubscription?.billing_provider ?? null,
     stripeCheckoutEnabled,
+    allowMockCheckout,
   });
+  if (!checkoutProvider) {
+    throw new ApiError(
+      409,
+      "billing_self_serve_not_configured",
+      "No production self-serve billing provider is configured for this workspace",
+      {
+        target_plan_id: targetPlan.plan_id,
+        target_plan_code: targetPlan.code,
+        stripe_checkout_enabled: stripeCheckoutEnabled,
+      },
+    );
+  }
   await env.DB.prepare(
     `INSERT INTO billing_checkout_sessions (
         checkout_session_id, workspace_id, organization_id, current_plan_id, target_plan_id,
@@ -3681,15 +4512,6 @@ async function completeSaasWorkspaceBillingCheckoutSession(
     throw new ApiError(409, "invalid_state_transition", "Checkout session can no longer be completed", {
       checkout_session_status: session.status,
     });
-  }
-
-  if (session.billing_provider !== "mock_checkout") {
-    throw new ApiError(
-      409,
-      "billing_checkout_provider_requires_webhook",
-      "This checkout session must be finalized by the billing provider webhook",
-      { billing_provider: session.billing_provider },
-    );
   }
 
   if (session.status === "completed") {
@@ -5411,6 +6233,30 @@ async function buildWorkspaceOnboardingState(
     updated_at: string;
     completed_at: string | null;
   } | null;
+  latest_demo_run_hint: {
+    status_label: string;
+    is_terminal: boolean;
+    needs_attention: boolean;
+    suggested_action: string | null;
+  } | null;
+  blockers: Array<{
+    code: string;
+    severity: "blocking" | "warning";
+    message: string;
+    surface: "onboarding" | "service-accounts" | "api-keys" | "playground" | "verification" | "go-live" | "settings";
+  }>;
+  recommended_next: {
+    surface: "onboarding" | "service-accounts" | "api-keys" | "playground" | "verification" | "go-live" | "settings";
+    action: string;
+    reason: string;
+  };
+  delivery_guidance: {
+    verification_status: WorkspaceDeliveryTrackRow["status"];
+    go_live_status: WorkspaceDeliveryTrackRow["status"];
+    next_surface: "onboarding" | "verification" | "go_live";
+    summary: string;
+    updated_at: string | null;
+  };
   next_actions: string[];
 }> {
   const demoConversationId = `onboarding-${workspace.slug}`;
@@ -5464,6 +6310,16 @@ async function buildWorkspaceOnboardingState(
     typeof demoRunCountResult?.count === "number"
       ? demoRunCountResult.count
       : Number(demoRunCountResult?.count ?? 0) || 0;
+  const deliveryTracks = await listWorkspaceDeliveryTracks(env, workspace.workspace_id);
+  const deliveryTrackMap = new Map(deliveryTracks.map((track) => [track.track_key, track]));
+  const verificationStatus = deliveryTrackMap.get("verification")?.status ?? "pending";
+  const goLiveStatus = deliveryTrackMap.get("go_live")?.status ?? "pending";
+  const deliveryUpdatedAtCandidates = deliveryTracks
+    .map((track) => track.updated_at)
+    .filter((value) => value.length > 0)
+    .sort()
+    .reverse();
+  const deliveryUpdatedAt = deliveryUpdatedAtCandidates[0] ?? null;
 
   let status:
     | "workspace_created"
@@ -5494,6 +6350,159 @@ async function buildWorkspaceOnboardingState(
   if (demoRunCreated && !demoRunSucceeded) {
     nextActions.push("Inspect the latest demo run and drive it to completion");
   }
+  if (demoRunSucceeded && verificationStatus !== "complete") {
+    nextActions.push("Capture verification evidence and update the verification delivery track");
+  }
+  if (demoRunSucceeded && verificationStatus === "complete" && goLiveStatus !== "complete") {
+    nextActions.push("Continue the go-live rehearsal and update the go-live delivery track");
+  }
+
+  const demoStatus = latestDemoRun?.status?.toLowerCase() ?? null;
+  const demoFailedStatuses = new Set(["failed", "error", "cancelled", "canceled", "terminated", "timed_out", "timeout"]);
+  const demoRunningStatuses = new Set(["pending", "queued", "running", "in_progress"]);
+  const latestDemoRunHint = latestDemoRun
+    ? {
+        status_label: demoRunSucceeded
+          ? "Demo run completed successfully"
+          : demoFailedStatuses.has(demoStatus ?? "")
+            ? "Demo run ended with a failure state"
+            : demoRunningStatuses.has(demoStatus ?? "")
+              ? "Demo run is still in progress"
+              : "Demo run requires operator review",
+        is_terminal: demoRunSucceeded || demoFailedStatuses.has(demoStatus ?? ""),
+        needs_attention: !demoRunSucceeded,
+        suggested_action: demoRunSucceeded
+          ? "Move to verification and attach run evidence."
+          : demoFailedStatuses.has(demoStatus ?? "")
+            ? "Open Playground and retry the first demo flow after reviewing the run detail."
+            : "Monitor run progress in Playground, then capture evidence after completion.",
+      }
+    : null;
+
+  const blockers: Array<{
+    code: string;
+    severity: "blocking" | "warning";
+    message: string;
+    surface: "onboarding" | "service-accounts" | "api-keys" | "playground" | "verification" | "go-live" | "settings";
+  }> = [];
+  if (!baselineReady) {
+    blockers.push({
+      code: "baseline_not_ready",
+      severity: "blocking",
+      message: "Bootstrap baseline providers and policies before continuing onboarding.",
+      surface: "onboarding",
+    });
+  }
+  if (baselineReady && !serviceAccountCreated) {
+    blockers.push({
+      code: "service_account_missing",
+      severity: "blocking",
+      message: "Create at least one active service account for workspace runtime operations.",
+      surface: "service-accounts",
+    });
+  }
+  if (baselineReady && serviceAccountCreated && !apiKeyCreated) {
+    blockers.push({
+      code: "api_key_missing",
+      severity: "blocking",
+      message: "Issue an API key so the first workspace demo flow can be invoked.",
+      surface: "api-keys",
+    });
+  }
+  if (baselineReady && serviceAccountCreated && apiKeyCreated && !demoRunCreated) {
+    blockers.push({
+      code: "demo_run_missing",
+      severity: "blocking",
+      message: "No onboarding demo run exists yet. Run the first demo flow from Playground.",
+      surface: "playground",
+    });
+  }
+  if (demoRunCreated && !demoRunSucceeded && demoFailedStatuses.has(demoStatus ?? "")) {
+    blockers.push({
+      code: "demo_run_failed",
+      severity: "blocking",
+      message: "Latest onboarding demo run failed and requires replay or a fresh demo execution.",
+      surface: "playground",
+    });
+  }
+  if (demoRunCreated && !demoRunSucceeded && !demoFailedStatuses.has(demoStatus ?? "")) {
+    blockers.push({
+      code: "demo_run_in_progress",
+      severity: "warning",
+      message: "Latest onboarding demo run is not completed yet. Wait for completion before verification handoff.",
+      surface: "playground",
+    });
+  }
+  if (demoRunSucceeded && verificationStatus !== "complete") {
+    blockers.push({
+      code: "verification_track_incomplete",
+      severity: "warning",
+      message: "Verification delivery track is not complete. Attach evidence and close verification before go-live.",
+      surface: "verification",
+    });
+  }
+  if (demoRunSucceeded && verificationStatus === "complete" && goLiveStatus !== "complete") {
+    blockers.push({
+      code: "go_live_track_incomplete",
+      severity: "warning",
+      message: "Go-live track is not complete. Continue the rehearsal checklist and capture remaining evidence.",
+      surface: "go-live",
+    });
+  }
+
+  const firstBlocking = blockers.find((item) => item.severity === "blocking");
+  const firstWarning = blockers.find((item) => item.severity === "warning");
+  const recommendedNext: {
+    surface: "onboarding" | "service-accounts" | "api-keys" | "playground" | "verification" | "go-live" | "settings";
+    action: string;
+    reason: string;
+  } = firstBlocking
+    ? {
+        surface: firstBlocking.surface,
+        action: "Resolve primary onboarding blocker",
+        reason: firstBlocking.message,
+      }
+    : firstWarning
+      ? {
+          surface: firstWarning.surface,
+          action: "Address readiness warning",
+          reason: firstWarning.message,
+        }
+      : goLiveStatus !== "complete"
+        ? {
+            surface: "go-live",
+            action: "Finalize mock go-live rehearsal",
+            reason: "Onboarding baseline and demo evidence are ready; advance to go-live closure.",
+          }
+        : {
+            surface: "verification",
+            action: "Maintain evidence hygiene",
+            reason: "Onboarding and delivery tracks are complete. Keep verification evidence current.",
+          };
+
+  const deliveryGuidance = {
+    verification_status: verificationStatus,
+    go_live_status: goLiveStatus,
+    next_surface:
+      verificationStatus !== "complete"
+        ? "verification"
+        : goLiveStatus !== "complete"
+          ? "go_live"
+          : "onboarding",
+    summary:
+      verificationStatus !== "complete"
+        ? "Verification track is still open; capture run evidence and update delivery status."
+        : goLiveStatus !== "complete"
+          ? "Verification is complete; continue go-live rehearsal and collect final handoff evidence."
+          : "Verification and go-live tracks are complete for this workspace.",
+    updated_at: deliveryUpdatedAt,
+  } satisfies {
+    verification_status: WorkspaceDeliveryTrackRow["status"];
+    go_live_status: WorkspaceDeliveryTrackRow["status"];
+    next_surface: "onboarding" | "verification" | "go_live";
+    summary: string;
+    updated_at: string | null;
+  };
 
   return {
     status,
@@ -5521,6 +6530,10 @@ async function buildWorkspaceOnboardingState(
           completed_at: latestDemoRun.completed_at,
         }
       : null,
+    latest_demo_run_hint: latestDemoRunHint,
+    blockers,
+    recommended_next: recommendedNext,
+    delivery_guidance: deliveryGuidance,
     next_actions: nextActions,
   };
 }
@@ -5891,19 +6904,33 @@ function buildWorkspaceBillingSummary(
   const cancelAtPeriodEnd = subscription?.cancel_at_period_end === 1;
   const currentPeriodStart = subscription?.current_period_start ?? null;
   const currentPeriodEnd = subscription?.current_period_end ?? null;
+  const stripeCheckoutEnabled = isStripeCheckoutEnabled(env);
+  const configuredSelfServeProvider = getOptionalEnvString(env, "BILLING_SELF_SERVE_PROVIDER");
+  const allowMockCheckout = configuredSelfServeProvider?.toLowerCase() === "mock_checkout";
   const providerConfig = getBillingProviderDescriptor(provider, provider, {
-    stripeCheckoutEnabled: isStripeCheckoutEnabled(env),
+    stripeCheckoutEnabled,
   });
-  const providerSelfServeEnabled = Boolean(
+  const checkoutProvider = resolveWorkspaceCheckoutProvider({
+    preferredProviderCode: configuredSelfServeProvider ?? subscription?.billing_provider ?? null,
+    stripeCheckoutEnabled,
+    allowMockCheckout,
+  });
+  const checkoutProviderIsStripe = checkoutProvider?.code === "stripe";
+  const checkoutProviderIsMock = checkoutProvider?.code === "mock_checkout";
+  const checkoutSelfServeEnabled = checkoutProvider?.supports_checkout === true;
+  const manageSelfServeEnabled = Boolean(
     providerConfig &&
-      (providerConfig.supports_checkout ||
-        providerConfig.supports_customer_portal ||
-        providerConfig.supports_subscription_cancel),
+      (providerConfig.supports_customer_portal || providerConfig.supports_subscription_cancel),
   );
-  const upgradeSelfServeEnabled = !isPaidPlan;
-  const selfServeEnabled = providerSelfServeEnabled || upgradeSelfServeEnabled;
+  const resolveBillingSelfServeEnabled = Boolean(
+    providerConfig &&
+      (providerConfig.supports_customer_portal ||
+        providerConfig.supports_subscription_cancel ||
+        providerConfig.supports_checkout),
+  );
 
   if (!subscription || (!isPaidPlan && subscription.status === "active")) {
+    const actionReady = !isPaidPlan && checkoutSelfServeEnabled;
     return {
       status: isPaidPlan ? "manual_paid" : "manual_free",
       status_label: isPaidPlan ? "Manual billing active" : "Free plan",
@@ -5915,15 +6942,25 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: !isPaidPlan,
+      self_serve_enabled: actionReady,
       description: isPaidPlan
         ? "This workspace is on a paid plan with manual billing operations."
-        : "This workspace is on the free plan. You can now prepare a self-serve checkout review for Pro.",
+        : actionReady && checkoutProviderIsStripe
+          ? "This workspace is on the free plan. You can now start Stripe-hosted self-serve checkout for Pro."
+          : actionReady && checkoutProviderIsMock
+            ? "This workspace is on the free plan. A test-only mock checkout flow is configured for non-production validation."
+            : "This workspace is on the free plan. Configure a production self-serve billing provider before operators can upgrade in product.",
       action: {
         kind: isPaidPlan ? "manage_plan" : "upgrade",
-        label: isPaidPlan ? "Coordinate plan changes" : "Upgrade to Pro",
+        label: isPaidPlan
+          ? "Coordinate plan changes"
+          : actionReady && checkoutProviderIsStripe
+            ? "Upgrade to Pro"
+            : actionReady && checkoutProviderIsMock
+              ? "Run test checkout flow"
+              : "Prepare self-serve upgrade",
         href: isPaidPlan ? "/settings?intent=manage-plan" : "/settings?intent=upgrade",
-        availability: isPaidPlan ? "staged" : "ready",
+        availability: actionReady ? "ready" : "staged",
       },
     };
   }
@@ -5940,18 +6977,20 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: selfServeEnabled,
+      self_serve_enabled: resolveBillingSelfServeEnabled,
       description: "The subscription is past due and feature access may tighten if billing is not resolved.",
       action: {
         kind: "resolve_billing",
-        label: selfServeEnabled ? "Resolve billing" : "Coordinate billing recovery",
+        label: resolveBillingSelfServeEnabled ? "Resolve billing" : "Coordinate billing recovery",
         href: "/settings?intent=resolve-billing",
-        availability: selfServeEnabled ? "ready" : "staged",
+        availability: resolveBillingSelfServeEnabled ? "ready" : "staged",
       },
     };
   }
 
   if (subscription.status === "trialing") {
+    const trialUpgradeReady =
+      Boolean(providerConfig?.supports_checkout) || checkoutSelfServeEnabled;
     return {
       status: subscription.status,
       status_label: "Trial active",
@@ -5963,13 +7002,19 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: selfServeEnabled,
+      self_serve_enabled: trialUpgradeReady,
       description: "The workspace is in trial and can be converted into an ongoing paid subscription.",
       action: {
         kind: "upgrade",
-        label: selfServeEnabled ? "Convert to paid plan" : "Prepare paid conversion",
+        label: trialUpgradeReady
+          ? checkoutProviderIsStripe
+            ? "Convert to paid plan"
+            : checkoutProviderIsMock
+              ? "Run test conversion flow"
+              : "Complete workspace-managed conversion"
+          : "Prepare paid conversion",
         href: "/settings?intent=upgrade",
-        availability: selfServeEnabled ? "ready" : "staged",
+        availability: trialUpgradeReady ? "ready" : "staged",
       },
     };
   }
@@ -5986,13 +7031,13 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: selfServeEnabled,
+      self_serve_enabled: manageSelfServeEnabled,
       description: "The current subscription is paused and should be resumed or replaced before go-live.",
       action: {
         kind: "contact_support",
-        label: selfServeEnabled ? "Manage paused subscription" : "Coordinate resume",
+        label: manageSelfServeEnabled ? "Manage paused subscription" : "Coordinate resume",
         href: "/settings?intent=manage-plan",
-        availability: selfServeEnabled ? "ready" : "staged",
+        availability: manageSelfServeEnabled ? "ready" : "staged",
       },
     };
   }
@@ -6009,18 +7054,19 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: selfServeEnabled,
+      self_serve_enabled: manageSelfServeEnabled,
       description: "The workspace is scheduled to leave its current plan at the end of the billing window.",
       action: {
         kind: "manage_plan",
-        label: selfServeEnabled ? "Manage scheduled cancellation" : "Coordinate renewal",
+        label: manageSelfServeEnabled ? "Manage scheduled cancellation" : "Coordinate renewal",
         href: "/settings?intent=manage-plan",
-        availability: selfServeEnabled ? "ready" : "staged",
+        availability: manageSelfServeEnabled ? "ready" : "staged",
       },
     };
   }
 
   if (subscription.status === "cancelled") {
+    const replacementUpgradeReady = checkoutSelfServeEnabled;
     return {
       status: subscription.status,
       status_label: "Subscription cancelled",
@@ -6032,17 +7078,24 @@ function buildWorkspaceBillingSummary(
       current_period_start: currentPeriodStart,
       current_period_end: currentPeriodEnd,
       cancel_at_period_end: cancelAtPeriodEnd,
-      self_serve_enabled: selfServeEnabled,
+      self_serve_enabled: replacementUpgradeReady,
       description: "The previous paid subscription is no longer active for this workspace.",
       action: {
         kind: "upgrade",
-        label: selfServeEnabled ? "Choose a new plan" : "Stage replacement plan",
+        label: replacementUpgradeReady
+          ? checkoutProviderIsStripe
+            ? "Choose a new plan"
+            : checkoutProviderIsMock
+              ? "Run replacement test flow"
+              : "Start replacement plan flow"
+          : "Prepare replacement plan",
         href: "/settings?intent=upgrade",
-        availability: selfServeEnabled ? "ready" : "staged",
+        availability: replacementUpgradeReady ? "ready" : "staged",
       },
     };
   }
 
+  const activeManageReady = manageSelfServeEnabled;
   return {
     status: subscription.status,
     status_label: isPaidPlan ? "Paid plan active" : "Subscription active",
@@ -6054,15 +7107,15 @@ function buildWorkspaceBillingSummary(
     current_period_start: currentPeriodStart,
     current_period_end: currentPeriodEnd,
     cancel_at_period_end: cancelAtPeriodEnd,
-    self_serve_enabled: selfServeEnabled,
-    description: selfServeEnabled
+    self_serve_enabled: activeManageReady,
+    description: activeManageReady
       ? "The workspace has an active self-serve-capable subscription."
       : "The workspace is active on its current plan, with manual billing operations behind the scenes.",
     action: {
       kind: "manage_plan",
-      label: selfServeEnabled ? "Manage subscription" : "Review plan operations",
+      label: activeManageReady ? "Manage subscription" : "Review plan operations",
       href: "/settings?intent=manage-plan",
-      availability: selfServeEnabled ? "ready" : "staged",
+      availability: activeManageReady ? "ready" : "staged",
     },
   };
 }

@@ -35,12 +35,33 @@ function AcceptInvitationPageContent() {
       return pathname;
     }
 
-    const params = new URLSearchParams();
+    const [basePath, rawQuery] = pathname.split("?", 2);
+    const params = new URLSearchParams(rawQuery ?? "");
+    const continuityKeys = [
+      "week8_focus",
+      "attention_organization",
+      "delivery_context",
+      "recent_track_key",
+      "recent_update_kind",
+      "evidence_count",
+      "recent_owner_label",
+      "recent_owner_display_name",
+      "recent_owner_email",
+    ];
+
+    for (const key of continuityKeys) {
+      const value = searchParams.get(key);
+      if (value && !params.has(key)) {
+        params.set(key, value);
+      }
+    }
+
     params.set("source", "onboarding");
     params.set("attention_workspace", acceptedWorkspace.workspace_slug);
     params.set("delivery_context", "recent_activity");
     params.set("recent_owner_label", acceptedWorkspace.display_name);
-    return `${pathname}?${params.toString()}`;
+    const query = params.toString();
+    return query ? `${basePath}?${query}` : basePath;
   }
 
   async function openWorkspaceSurface(pathname: string): Promise<void> {
@@ -144,7 +165,7 @@ function AcceptInvitationPageContent() {
                       type="button"
                       className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={isSwitchingWorkspace}
-                    onClick={() => void openWorkspaceSurface(buildOnboardingPath("/members"))}
+                      onClick={() => void openWorkspaceSurface(buildOnboardingPath("/members"))}
                     >
                       {isSwitchingWorkspace ? "Switching..." : "Confirm members"}
                     </button>
@@ -152,7 +173,7 @@ function AcceptInvitationPageContent() {
                       type="button"
                       className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={isSwitchingWorkspace}
-                    onClick={() => void openWorkspaceSurface(buildOnboardingPath("/playground"))}
+                      onClick={() => void openWorkspaceSurface(buildOnboardingPath("/playground"))}
                     >
                       {isSwitchingWorkspace ? "Switching..." : "Run a demo"}
                     </button>
@@ -160,9 +181,19 @@ function AcceptInvitationPageContent() {
                       type="button"
                       className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={isSwitchingWorkspace}
-                    onClick={() => void openWorkspaceSurface(buildOnboardingPath("/verification"))}
+                      onClick={() =>
+                        void openWorkspaceSurface(buildOnboardingPath("/verification?surface=verification"))
+                      }
                     >
                       {isSwitchingWorkspace ? "Switching..." : "Open Week 8 checklist"}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={isSwitchingWorkspace}
+                      onClick={() => void openWorkspaceSurface(buildOnboardingPath("/go-live?surface=go_live"))}
+                    >
+                      {isSwitchingWorkspace ? "Switching..." : "Open mock go-live drill"}
                     </button>
                   </div>
                 </div>

@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { disableServiceAccount, fetchServiceAccounts } from "@/services/control-plane";
+import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
+import { ControlPlaneRequestError, disableServiceAccount, fetchCurrentWorkspace, fetchServiceAccounts } from "@/services/control-plane";
 
 type HandoffSource = "admin-attention" | "admin-readiness" | "onboarding";
 type HandoffQuery = {
@@ -20,41 +22,19 @@ type HandoffQuery = {
   evidenceCount?: number | null;
   recentOwnerLabel?: string | null;
 };
-type HandoffHrefArgs = HandoffQuery & { pathname: string };
-
-function buildHandoffHref({ pathname, ...query }: HandoffHrefArgs): string {
-  if (!query.source) {
-    return pathname;
-  }
-  const searchParams = new URLSearchParams();
-  searchParams.set("source", query.source);
-  if (query.week8Focus) {
-    searchParams.set("week8_focus", query.week8Focus);
-  }
-  if (query.attentionWorkspace) {
-    searchParams.set("attention_workspace", query.attentionWorkspace);
-  }
-  if (query.attentionOrganization) {
-    searchParams.set("attention_organization", query.attentionOrganization);
-  }
-  if (query.deliveryContext) {
-    searchParams.set("delivery_context", query.deliveryContext);
-  }
-  if (query.recentTrackKey) {
-    searchParams.set("recent_track_key", query.recentTrackKey);
-  }
-  if (query.recentUpdateKind) {
-    searchParams.set("recent_update_kind", query.recentUpdateKind);
-  }
-  if (typeof query.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(query.evidenceCount));
-  }
-  if (query.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", query.recentOwnerLabel);
-  }
-  const search = searchParams.toString();
-  return search ? `${pathname}?${search}` : pathname;
-}
+type OnboardingSurface =
+  | "onboarding"
+  | "members"
+  | "service_accounts"
+  | "service-accounts"
+  | "api_keys"
+  | "api-keys"
+  | "playground"
+  | "verification"
+  | "usage"
+  | "settings"
+  | "go_live"
+  | "go-live";
 
 function buildContextLines(params: {
   ownerLabel?: string | null;
@@ -94,7 +74,7 @@ function getContextCard(source: HandoffSource | null, lines: string[]): { title:
       body:
         "You followed the Week 8 readiness focus. Keep this page navigation-only while confirming service accounts, billing, or verification evidence before returning to the admin snapshot.",
       actions: [
-        { label: "Return to verification", path: "/verification" },
+        { label: "Return to verification", path: "/verification?surface=verification" },
         { label: "Continue to playground", path: "/playground" },
       ],
       metaLines: lines.length ? lines : undefined,
@@ -105,7 +85,7 @@ function getContextCard(source: HandoffSource | null, lines: string[]): { title:
       title: "Admin queue follow-up",
       body: "You’re tracking a workspace in the admin attention queue. Review service accounts then manually continue into the pending verification, usage, or API key surfaces before returning to the queue.",
       actions: [
-        { label: "Open verification", path: "/verification" },
+        { label: "Open verification", path: "/verification?surface=verification" },
         { label: "Inspect API keys", path: "/api-keys" },
       ],
       metaLines: lines.length ? lines : undefined,
@@ -118,12 +98,107 @@ function getContextCard(source: HandoffSource | null, lines: string[]): { title:
         "You arrived here via onboarding. Create the first service account, keep the scope narrow, and then use the workspace playground and verification pages to capture the evidence trace.",
       actions: [
         { label: "Run a playground demo", path: "/playground" },
-        { label: "Capture verification evidence", path: "/verification" },
+        { label: "Capture verification evidence", path: "/verification?surface=verification" },
       ],
       metaLines: lines.length ? lines : undefined,
     };
   }
   return null;
+}
+
+function toSurfacePath(surface: OnboardingSurface): string {
+  if (surface === "service_accounts" || surface === "service-accounts") {
+    return "/service-accounts";
+  }
+  if (surface === "api_keys" || surface === "api-keys") {
+    return "/api-keys";
+  }
+  if (surface === "verification") {
+    return "/verification?surface=verification";
+  }
+  if (surface === "go_live" || surface === "go-live") {
+    return "/go-live?surface=go_live";
+  }
+  return `/${surface}`;
+}
+
+function getServiceAccountsGuide(args: {
+  onboarding?: {
+    checklist: {
+      baseline_ready: boolean;
+      service_account_created: boolean;
+      api_key_created: boolean;
+      demo_run_created: boolean;
+      demo_run_succeeded: boolean;
+    };
+    blockers?: Array<{ message: string }> | null;
+    recommended_next_surface?: OnboardingSurface | null;
+    recommended_next_action?: string | null;
+    recommended_next_reason?: string | null;
+  } | null;
+}): { title: string; body: string; actionLabel: string; actionSurface: OnboardingSurface; blockers: string[] } {
+  const blockers =
+    args.onboarding?.blockers && args.onboarding.blockers.length > 0
+      ? args.onboarding.blockers.map((item) => item.message)
+      : [
+          args.onboarding?.checklist.baseline_ready ? null : "Baseline bootstrap is not complete yet.",
+          args.onboarding?.checklist.service_account_created ? null : "Service account is still missing.",
+          args.onboarding?.checklist.api_key_created ? null : "API key is still missing.",
+          args.onboarding?.checklist.demo_run_created && !args.onboarding.checklist.demo_run_succeeded
+            ? "Demo run exists but has not succeeded yet."
+            : null,
+        ].filter((item): item is string => item !== null);
+
+  if (args.onboarding?.recommended_next_surface && args.onboarding.recommended_next_surface !== "service_accounts") {
+    return {
+      title: "Onboarding handoff",
+      body:
+        args.onboarding.recommended_next_reason ??
+        "Service account step is done or not the critical blocker. Continue with the recommended next surface.",
+      actionLabel: args.onboarding.recommended_next_action ?? "Continue onboarding",
+      actionSurface: args.onboarding.recommended_next_surface,
+      blockers,
+    };
+  }
+
+  if (args.onboarding?.checklist.api_key_created !== true) {
+    return {
+      title: "Onboarding handoff",
+      body: "After creating a service account, mint a first API key to unlock Playground demo runs.",
+      actionLabel: "Create API key",
+      actionSurface: "api_keys",
+      blockers,
+    };
+  }
+  if (args.onboarding?.checklist.demo_run_succeeded !== true) {
+    return {
+      title: "Onboarding handoff",
+      body: "Credentials are ready. Use Playground to create or confirm the first successful demo run.",
+      actionLabel: "Run first demo",
+      actionSurface: "playground",
+      blockers,
+    };
+  }
+  return {
+    title: "Onboarding handoff",
+    body: "First demo has succeeded. Capture verification evidence to close the onboarding loop.",
+    actionLabel: "Capture verification evidence",
+    actionSurface: "verification",
+    blockers,
+  };
+}
+
+function formatServiceAccountDisableError(error: unknown): string {
+  if (error instanceof ControlPlaneRequestError) {
+    if (error.message) {
+      return `Service account disable failed: ${error.message}`;
+    }
+    return `Service account disable failed (${error.code}).`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Service account disable failed. Check workspace permissions and retry.";
 }
 
 type ServiceAccountsPanelProps = {
@@ -164,14 +239,26 @@ export function ServiceAccountsPanel({
     queryKey: ["workspace-service-accounts", workspaceSlug],
     queryFn: fetchServiceAccounts,
   });
+  const workspaceQuery = useQuery({
+    queryKey: ["workspace-onboarding-state", workspaceSlug],
+    queryFn: fetchCurrentWorkspace,
+  });
 
   const serviceAccounts = data ?? [];
+  const [actionError, setActionError] = useState<string | null>(null);
   const disableMutation = useMutation({
+    onMutate: () => {
+      setActionError(null);
+    },
     mutationFn: (serviceAccountId: string) => disableServiceAccount(serviceAccountId),
     onSuccess: async () => {
       await queryClient.invalidateQueries({
         queryKey: ["workspace-service-accounts", workspaceSlug],
       });
+      setActionError(null);
+    },
+    onError: (error: unknown) => {
+      setActionError(formatServiceAccountDisableError(error));
     },
   });
 
@@ -186,7 +273,7 @@ export function ServiceAccountsPanel({
     evidenceCount,
   });
   const contextCard = getContextCard(normalizedSource, metadataLines);
-  const handoffHrefArgs: Omit<HandoffHrefArgs, "pathname"> = {
+  const handoffHrefArgs: HandoffQuery = {
     source: normalizedSource,
     week8Focus,
     attentionWorkspace,
@@ -197,6 +284,9 @@ export function ServiceAccountsPanel({
     evidenceCount,
     recentOwnerLabel,
   };
+  const onboardingGuide = getServiceAccountsGuide({
+    onboarding: workspaceQuery.data?.onboarding ?? null,
+  });
 
   return (
     <Card>
@@ -227,7 +317,7 @@ export function ServiceAccountsPanel({
                 {contextCard.actions.map((action) => (
                   <Link
                     key={action.label}
-                    href={buildHandoffHref({ pathname: action.path, ...handoffHrefArgs })}
+                    href={buildVerificationChecklistHandoffHref({ pathname: action.path, ...handoffHrefArgs })}
                     className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
                   >
                     {action.label}
@@ -240,6 +330,30 @@ export function ServiceAccountsPanel({
             </CardContent>
           </Card>
         ) : null}
+        <Card className="rounded-2xl border border-border bg-card p-4">
+          <CardHeader>
+            <CardTitle>{onboardingGuide.title}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted">{onboardingGuide.body}</p>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={buildVerificationChecklistHandoffHref({ pathname: toSurfacePath(onboardingGuide.actionSurface), ...handoffHrefArgs })}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                {onboardingGuide.actionLabel}
+              </Link>
+            </div>
+            {onboardingGuide.blockers.length > 0 ? (
+              <div className="space-y-1 text-xs text-muted">
+                <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Current blockers</p>
+                {onboardingGuide.blockers.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
         <p className="text-sm text-muted">
           Use the governance path below to keep the evidence trace connected—service accounts, api keys, and playground runs all stay within the same navigation context.
         </p>
@@ -260,19 +374,22 @@ export function ServiceAccountsPanel({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link
-              href={buildHandoffHref({ pathname: "/service-accounts", ...handoffHrefArgs })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/service-accounts", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Review service accounts
             </Link>
             <Link
-              href={buildHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Run a verification demo
             </Link>
             <Link
-              href={buildHandoffHref({ pathname: "/verification", ...handoffHrefArgs })}
+              href={buildVerificationChecklistHandoffHref({
+                pathname: "/verification?surface=verification",
+                ...handoffHrefArgs,
+              })}
               className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Capture Week 8 evidence
@@ -331,9 +448,7 @@ export function ServiceAccountsPanel({
             </div>
           </div>
         ))}
-        {disableMutation.isError ? (
-          <p className="text-xs text-muted">Service account disable failed. Check workspace permissions and retry.</p>
-        ) : null}
+        {actionError ? <p className="text-xs text-red-600">{actionError}</p> : null}
       </CardContent>
     </Card>
   );

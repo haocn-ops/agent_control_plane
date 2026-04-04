@@ -79,7 +79,7 @@ export function buildBillingProviderRegistry(
         code: "mock_checkout",
         display_name: "Mock checkout",
         kind: "mock",
-        status: activeProvider === "mock_checkout" ? "active" : "available",
+        status: activeProvider === "mock_checkout" ? "active" : "staged",
         is_current: activeProvider === "mock_checkout",
         supports_checkout: true,
         supports_customer_portal: false,
@@ -87,7 +87,7 @@ export function buildBillingProviderRegistry(
         supports_webhooks: true,
         webhook_path: "/api/v1/saas/billing/providers/mock_checkout:webhook",
         notes: [
-          "Internal Week 7 provider used to validate checkout and subscription orchestration safely.",
+          "Fallback test provider used to validate checkout and subscription orchestration safely.",
           "Webhook route accepts normalized provider events without external payment capture.",
         ],
       },
@@ -109,7 +109,7 @@ export function buildBillingProviderRegistry(
               "Subscription management and cancellation changes are routed through Stripe Billing Portal.",
             ]
           : [
-              "Planned external billing provider target for the next integration slice.",
+              "Primary external billing provider for production self-serve rollout.",
               "Webhook signature verification can be enabled with STRIPE_WEBHOOK_SECRET.",
             ],
       },
@@ -137,21 +137,37 @@ export function getBillingProviderDescriptor(
 export function resolveWorkspaceCheckoutProvider(args?: {
   preferredProviderCode?: string | null;
   stripeCheckoutEnabled?: boolean;
-}): BillingProviderDescriptor {
+  allowMockCheckout?: boolean;
+}): BillingProviderDescriptor | null {
+  const stripeCheckoutEnabled = args?.stripeCheckoutEnabled === true;
   const preferredProvider = args?.preferredProviderCode
     ? getBillingProviderDescriptor(args.preferredProviderCode, null, {
-        stripeCheckoutEnabled: args.stripeCheckoutEnabled === true,
+        stripeCheckoutEnabled,
       })
     : null;
-  if (preferredProvider?.supports_checkout) {
+  if (
+    preferredProvider?.supports_checkout &&
+    (preferredProvider.code !== "mock_checkout" || args?.allowMockCheckout === true)
+  ) {
     return preferredProvider;
   }
 
-  const fallback = getBillingProviderDescriptor("mock_checkout");
-  if (!fallback) {
-    throw new Error("mock_checkout billing provider is not registered");
+  const stripeProvider = getBillingProviderDescriptor("stripe", null, {
+    stripeCheckoutEnabled,
+  });
+  if (stripeProvider?.supports_checkout) {
+    return stripeProvider;
   }
-  return fallback;
+
+  if (args?.allowMockCheckout === true) {
+    const fallback = getBillingProviderDescriptor("mock_checkout");
+    if (!fallback) {
+      throw new Error("mock_checkout billing provider is not registered");
+    }
+    return fallback;
+  }
+
+  return null;
 }
 
 export async function verifyBillingWebhookSignature(args: {

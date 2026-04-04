@@ -18,11 +18,13 @@ import type {
   ControlPlaneAdminAttentionWorkspace,
   ControlPlaneAdminDeliveryWorkspace,
   ControlPlaneAdminDeliveryUpdateKind,
+  ControlPlaneContractMeta,
   ControlPlaneAdminWeek8ReadinessFocus,
   ControlPlaneAdminWeek8ReadinessWorkspace,
   ControlPlaneDeliveryGovernance,
   ControlPlaneDeliveryTrackStatus,
 } from "@/lib/control-plane-types";
+import { buildHandoffHref } from "@/lib/handoff-query";
 import { fetchAdminOverview } from "@/services/control-plane";
 
 type SurfaceFilter = "all" | "verification" | "go_live";
@@ -121,6 +123,50 @@ function formatOwnerLabel(displayName?: string | null, email?: string | null): s
     return email;
   }
   return null;
+}
+
+function adminContractBadgeVariant(
+  source?: ControlPlaneContractMeta["source"] | null,
+): "strong" | "default" | "subtle" {
+  if (source === "live") {
+    return "strong";
+  }
+  if (source === "fallback_control_plane_unavailable" || source === "fallback_error") {
+    return "default";
+  }
+  return "subtle";
+}
+
+function adminContractLabel(source?: ControlPlaneContractMeta["source"] | null): string {
+  if (source === "live") {
+    return "Live admin contract";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Fallback: feature gate";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Fallback: control plane unavailable";
+  }
+  if (source === "fallback_error") {
+    return "Fallback: preview data";
+  }
+  return "Contract source unknown";
+}
+
+function adminContractDescription(source?: ControlPlaneContractMeta["source"] | null): string {
+  if (source === "live") {
+    return "Platform snapshot is loaded from live admin control-plane data.";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Admin snapshot is currently feature-gated and cannot show the full live summary.";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Admin snapshot is using preview fallback data because the control plane is unavailable.";
+  }
+  if (source === "fallback_error") {
+    return "Admin snapshot is using preview fallback data and should not be treated as live workspace readiness.";
+  }
+  return "Admin snapshot contract source is unavailable.";
 }
 
 function evidenceBadgeVariant(evidenceCount?: number): "strong" | "default" | "subtle" {
@@ -233,19 +279,16 @@ function buildSurfaceFollowUpHref({
   workspaceSlug?: string | null;
   organizationId?: string | null;
 }): string {
-  const [basePath, rawQuery] = pathname.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  searchParams.set("source", "admin-readiness");
-  if (readinessFocus) {
-    searchParams.set("week8_focus", readinessFocus);
-  }
-  if (workspaceSlug) {
-    searchParams.set("attention_workspace", workspaceSlug);
-  }
-  if (organizationId) {
-    searchParams.set("attention_organization", organizationId);
-  }
-  return `${basePath}?${searchParams.toString()}`;
+  return buildHandoffHref(
+    pathname,
+    {
+      source: "admin-readiness",
+      week8Focus: readinessFocus,
+      attentionWorkspace: workspaceSlug,
+      attentionOrganization: organizationId,
+    },
+    { preserveExistingQuery: true },
+  );
 }
 
 function readinessFollowUpAction(
@@ -286,7 +329,7 @@ function readinessFollowUpAction(
     return {
       label: "Open Week 8 checklist",
       href: buildSurfaceFollowUpHref({
-        pathname: "/verification",
+        pathname: "/verification?surface=verification",
         readinessFocus,
         workspaceSlug: attentionWorkspaceSlug,
         organizationId: attentionOrganizationId,
@@ -298,7 +341,7 @@ function readinessFollowUpAction(
   return {
     label: "Open mock go-live drill",
     href: buildSurfaceFollowUpHref({
-      pathname: "/go-live",
+      pathname: "/go-live?surface=go_live",
       readinessFocus,
       workspaceSlug: attentionWorkspaceSlug,
       organizationId: attentionOrganizationId,
@@ -331,6 +374,8 @@ export function AdminOverviewPanel({
   });
 
   const summary = data?.summary;
+  const adminContractMeta = data?.contract_meta ?? null;
+  const adminContractSource = adminContractMeta?.source ?? (data ? "live" : null);
   const planDistribution = data?.plan_distribution ?? [];
   const recentWorkspaces = data?.recent_workspaces ?? [];
   const featureRollout = data?.feature_rollout;
@@ -888,6 +933,19 @@ export function AdminOverviewPanel({
         <CardContent className="space-y-4 text-sm">
           {isLoading ? <p className="text-muted">Loading admin overview...</p> : null}
           {isError ? <p className="text-muted">Unable to load live admin overview, showing preview data.</p> : null}
+          {data ? (
+            <div className="space-y-2 rounded-2xl border border-border bg-background px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={adminContractBadgeVariant(adminContractSource)}>
+                  {adminContractLabel(adminContractSource)}
+                </Badge>
+                <p className="text-xs text-muted">{adminContractDescription(adminContractSource)}</p>
+              </div>
+              {adminContractMeta?.issue ? (
+                <p className="text-xs text-muted">Contract note: {adminContractMeta.issue.message}</p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <div className="rounded-2xl border border-border bg-background p-4">
               <p className="text-xs uppercase tracking-wide text-muted">Organizations</p>
@@ -1022,7 +1080,7 @@ export function AdminOverviewPanel({
               }
             : {
                 label: "Open Week 8 checklist",
-                href: "/verification",
+                href: "/verification?surface=verification",
               }
         }
       />
@@ -1574,7 +1632,7 @@ export function AdminOverviewPanel({
           <div className="flex flex-wrap gap-2">
             <Link
               href={buildSurfaceFollowUpHref({
-                pathname: "/go-live",
+                pathname: "/go-live?surface=go_live",
                 readinessFocus,
                 workspaceSlug: attentionWorkspaceSlug,
                 organizationId: attentionOrganizationId,
@@ -1585,7 +1643,7 @@ export function AdminOverviewPanel({
             </Link>
             <Link
               href={buildSurfaceFollowUpHref({
-                pathname: "/verification",
+                pathname: "/verification?surface=verification",
                 readinessFocus,
                 workspaceSlug: attentionWorkspaceSlug,
                 organizationId: attentionOrganizationId,

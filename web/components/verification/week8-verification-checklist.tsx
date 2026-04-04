@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildAdminReturnHref, buildHandoffHref } from "@/lib/handoff-query";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
 
 type ChecklistState = "complete" | "in_progress" | "pending";
@@ -19,6 +20,7 @@ type ChecklistItem = {
 
 type VerificationChecklistSource = "admin-readiness" | "admin-attention" | "onboarding";
 type DeliveryContext = "recent_activity";
+type RecentTrackKey = "verification" | "go_live";
 
 function stateLabel(state: ChecklistState): string {
   if (state === "complete") {
@@ -59,7 +61,7 @@ function normalizeDeliveryContext(value?: string | null): DeliveryContext | null
   return value === "recent_activity" ? "recent_activity" : null;
 }
 
-function normalizeRecentTrackKey(value?: string | null): "verification" | "go_live" | null {
+function normalizeRecentTrackKey(value?: string | null): RecentTrackKey | null {
   if (value === "verification" || value === "go_live") {
     return value;
   }
@@ -79,65 +81,20 @@ function normalizeRecentUpdateKind(value?: string | null): string | null {
   return null;
 }
 
-function buildChecklistHref(
-  pathname: string,
-  source: VerificationChecklistSource | null,
-  week8Focus?: string | null,
-  attentionWorkspace?: string | null,
-  attentionOrganization?: string | null,
-  deliveryContext?: DeliveryContext | null,
-  recentTrackKey?: "verification" | "go_live" | null,
-  recentUpdateKind?: string | null,
-  evidenceCount?: number | null,
-  recentOwnerLabel?: string | null,
-): string {
-  if (!source) {
-    return pathname;
-  }
-  const [basePath, rawQuery] = pathname.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  searchParams.set("source", source);
-  if (week8Focus) {
-    searchParams.set("week8_focus", week8Focus);
-  }
-  if (attentionWorkspace) {
-    searchParams.set("attention_workspace", attentionWorkspace);
-  }
-  if (attentionOrganization) {
-    searchParams.set("attention_organization", attentionOrganization);
-  }
-  if (deliveryContext) {
-    searchParams.set("delivery_context", deliveryContext);
-  }
-  if (recentTrackKey) {
-    searchParams.set("recent_track_key", recentTrackKey);
-  }
-  if (recentUpdateKind) {
-    searchParams.set("recent_update_kind", recentUpdateKind);
-  }
-  if (typeof evidenceCount === "number") {
-    searchParams.set("evidence_count", String(evidenceCount));
-  }
-  if (recentOwnerLabel) {
-    searchParams.set("recent_owner_label", recentOwnerLabel);
-  }
-  return `${basePath}?${searchParams.toString()}`;
-}
-
-function buildSettingsIntentHref(
-  intent: string | null,
-  source: VerificationChecklistSource | null,
-  week8Focus?: string | null,
-  attentionWorkspace?: string | null,
-  attentionOrganization?: string | null,
-  deliveryContext?: DeliveryContext | null,
-  recentTrackKey?: "verification" | "go_live" | null,
-  recentUpdateKind?: string | null,
-  evidenceCount?: number | null,
-  recentOwnerLabel?: string | null,
-): string {
-  const baseHref = buildChecklistHref(
-    "/settings",
+export function buildVerificationChecklistHandoffHref(args: {
+  pathname: string;
+  source?: VerificationChecklistSource | null;
+  week8Focus?: string | null;
+  attentionWorkspace?: string | null;
+  attentionOrganization?: string | null;
+  deliveryContext?: string | null;
+  recentTrackKey?: string | null;
+  recentUpdateKind?: string | null;
+  evidenceCount?: number | null;
+  recentOwnerLabel?: string | null;
+}): string {
+  const {
+    pathname,
     source,
     week8Focus,
     attentionWorkspace,
@@ -147,14 +104,51 @@ function buildSettingsIntentHref(
     recentUpdateKind,
     evidenceCount,
     recentOwnerLabel,
-  );
-  if (!intent) {
-    return baseHref;
+  } = args;
+  if (!source) {
+    return pathname;
   }
-  const [basePath, rawQuery] = baseHref.split("?", 2);
-  const searchParams = new URLSearchParams(rawQuery ?? "");
-  searchParams.set("intent", intent);
-  return `${basePath}?${searchParams.toString()}`;
+  return buildHandoffHref(
+    pathname,
+    {
+      source,
+      week8Focus,
+      attentionWorkspace,
+      attentionOrganization,
+      deliveryContext: normalizeDeliveryContext(deliveryContext),
+      recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
+      recentUpdateKind,
+      evidenceCount,
+      recentOwnerLabel,
+    },
+    { preserveExistingQuery: true },
+  );
+}
+
+function buildSettingsIntentHref(
+  intent: string | null,
+  source: VerificationChecklistSource | null,
+  week8Focus?: string | null,
+  attentionWorkspace?: string | null,
+  attentionOrganization?: string | null,
+  deliveryContext?: DeliveryContext | null,
+  recentTrackKey?: RecentTrackKey | null,
+  recentUpdateKind?: string | null,
+  evidenceCount?: number | null,
+  recentOwnerLabel?: string | null,
+): string {
+  return buildVerificationChecklistHandoffHref({
+    pathname: intent ? `/settings?intent=${intent}` : "/settings",
+    source,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    deliveryContext,
+    recentTrackKey,
+    recentUpdateKind,
+    evidenceCount,
+    recentOwnerLabel,
+  });
 }
 
 function buildAdminEvidenceHref(args: {
@@ -162,43 +156,23 @@ function buildAdminEvidenceHref(args: {
   week8Focus?: string | null;
   attentionWorkspace?: string | null;
   attentionOrganization?: string | null;
-  recentTrackKey?: "verification" | "go_live" | null;
+  recentTrackKey?: RecentTrackKey | null;
   deliveryContext?: DeliveryContext | null;
   recentUpdateKind?: string | null;
   evidenceCount?: number | null;
   recentOwnerLabel?: string | null;
 }): string {
-  const searchParams = new URLSearchParams();
-  if (args.source === "admin-attention") {
-    if (args.recentTrackKey) {
-      searchParams.set("queue_surface", args.recentTrackKey);
-    }
-    searchParams.set("queue_returned", "1");
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  if (args.source === "admin-readiness" && args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-    searchParams.set("readiness_returned", "1");
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  const query = searchParams.toString();
-  return query ? `/admin?${query}` : "/admin";
+  return buildAdminReturnHref("/admin", {
+    source: args.source,
+    queueSurface: args.recentTrackKey,
+    week8Focus: args.week8Focus,
+    attentionWorkspace: args.attentionWorkspace,
+    attentionOrganization: args.attentionOrganization,
+    deliveryContext: args.deliveryContext,
+    recentUpdateKind: args.recentUpdateKind,
+    evidenceCount: args.evidenceCount,
+    recentOwnerLabel: args.recentOwnerLabel,
+  });
 }
 
 export function Week8VerificationChecklist({
@@ -234,25 +208,36 @@ export function Week8VerificationChecklist({
   const normalizedRecentTrackKey = normalizeRecentTrackKey(recentTrackKey);
   const normalizedRecentUpdateKind = normalizeRecentUpdateKind(recentUpdateKind);
   const isOnboardingFlow = normalizedSource === "onboarding";
+  const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>[0], "pathname"> = {
+    source: normalizedSource,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    deliveryContext: normalizedDeliveryContext,
+    recentTrackKey: normalizedRecentTrackKey,
+    recentUpdateKind: normalizedRecentUpdateKind,
+    evidenceCount,
+    recentOwnerLabel,
+  };
 
   const onboardingGuidanceItems = [
     {
       id: "onboarding-guidance-api-keys",
       label: "Create your first API key",
       description: "Finish the workspace service account and key setup so you can authenticate playground runs.",
-      href: buildChecklistHref("/api-keys", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/api-keys", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
     },
     {
       id: "onboarding-guidance-playground",
       label: "Run a demo request in Playground",
       description: "Send a request with the same workspace context to observe the request/response trace manually.",
-      href: buildChecklistHref("/playground", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/playground", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
     },
     {
       id: "onboarding-guidance-verification",
       label: "Return with evidence to verification",
       description: "Capture the run trace and mark the checklist items here to close the first-demo loop.",
-      href: buildChecklistHref("/verification", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/verification?surface=verification", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
     },
   ];
 
@@ -262,27 +247,53 @@ export function Week8VerificationChecklist({
   const usage = data?.usage;
   const metrics = usage?.metrics ?? {};
   const demoRunSucceeded = onboarding?.checklist.demo_run_succeeded === true;
+  const latestDemoRun = onboarding?.latest_demo_run ?? null;
+  const latestDemoRunHint = onboarding?.latest_demo_run_hint ?? null;
+  const deliveryGuidance = onboarding?.delivery_guidance ?? null;
+  const verificationStatus = deliveryGuidance?.verification_status ?? "pending";
+  const goLiveStatus = deliveryGuidance?.go_live_status ?? "pending";
+  const verificationIncomplete = verificationStatus !== "complete";
+  const demoRunStatus =
+    latestDemoRun?.status?.toLowerCase() ?? null;
+  const demoRunFailed = demoRunStatus
+    ? ["failed", "error", "cancelled", "canceled", "terminated", "timed_out", "timeout"].includes(demoRunStatus)
+    : false;
+  const demoRunInProgress = demoRunStatus
+    ? ["pending", "queued", "running", "in_progress"].includes(demoRunStatus)
+    : false;
+  const primarySurface = demoRunFailed || demoRunInProgress
+    ? "/playground"
+    : verificationIncomplete
+      ? "/verification?surface=verification"
+      : "/go-live?surface=go_live";
+  const primaryLabel = demoRunFailed
+    ? "Retry first demo"
+    : demoRunInProgress
+      ? "Monitor the run"
+      : verificationIncomplete
+        ? "Capture verification evidence"
+        : "Finalize go-live drill";
 
   const onboardingItems: ChecklistItem[] = [
     {
       id: "onboarding-workspace",
       label: "Workspace created and selected",
       description: "Workspace can be loaded via SaaS metadata context.",
-      href: buildChecklistHref("/onboarding", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/onboarding", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: data?.workspace ? "complete" : "pending",
     },
     {
       id: "onboarding-baseline",
       label: "Baseline bootstrap completed",
       description: "Provider and policy baseline seeded for safe first-run.",
-      href: buildChecklistHref("/onboarding", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/onboarding", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: onboarding?.checklist.baseline_ready ? "complete" : onboarding?.checklist.workspace_created ? "in_progress" : "pending",
     },
     {
       id: "onboarding-credentials",
       label: "Service account and API key prepared",
       description: "At least one service account and key path verified.",
-      href: buildChecklistHref("/onboarding", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/onboarding", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state:
         onboarding?.checklist.service_account_created && onboarding?.checklist.api_key_created
           ? "complete"
@@ -304,14 +315,14 @@ export function Week8VerificationChecklist({
       id: "billing-warning",
       label: "No unresolved billing warning",
       description: "Past due or warning statuses are either resolved or tracked.",
-      href: buildChecklistHref("/settings?intent=resolve-billing", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/settings?intent=resolve-billing", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: !billing ? "pending" : billing.status_tone === "warning" ? "in_progress" : "complete",
     },
     {
       id: "billing-usage",
       label: "Usage and plan pressure checked",
       description: "Billing window and limit pressure reviewed before go-live.",
-      href: buildChecklistHref("/usage", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/usage", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: usage ? "complete" : "pending",
     },
   ];
@@ -321,21 +332,21 @@ export function Week8VerificationChecklist({
       id: "run-demo-created",
       label: "Demo run created",
       description: "A first run has been submitted from onboarding or playground.",
-      href: buildChecklistHref("/onboarding", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/onboarding", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: onboarding?.checklist.demo_run_created ? "complete" : "pending",
     },
     {
       id: "run-demo-succeeded",
       label: "Demo run succeeded",
       description: "At least one run completed successfully in workspace context.",
-      href: buildChecklistHref("/onboarding", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/onboarding", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: onboarding?.checklist.demo_run_succeeded ? "complete" : onboarding?.checklist.demo_run_created ? "in_progress" : "pending",
     },
     {
       id: "run-playground",
       label: "Run flow validated in playground",
       description: "Request/response path reviewed for the selected workspace.",
-      href: buildChecklistHref("/playground", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/playground", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: onboarding?.checklist.demo_run_created ? "in_progress" : "pending",
     },
   ];
@@ -345,7 +356,7 @@ export function Week8VerificationChecklist({
       id: "evidence-usage",
       label: "Usage evidence captured",
       description: "Runs and active-provider metrics can be observed in usage dashboard.",
-      href: buildChecklistHref("/usage", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/usage", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: typeof metrics.runs_created?.used === "number" && metrics.runs_created.used > 0 ? "complete" : "pending",
     },
     {
@@ -373,7 +384,7 @@ export function Week8VerificationChecklist({
       href: buildAdminEvidenceHref({
         source: normalizedSource,
         week8Focus,
-        attentionWorkspace,
+        attentionWorkspace: attentionWorkspace ?? workspaceSlug,
         attentionOrganization,
         recentTrackKey: normalizedRecentTrackKey,
         deliveryContext: normalizedDeliveryContext,
@@ -387,7 +398,7 @@ export function Week8VerificationChecklist({
       id: "evidence-go-live-drill",
       label: "Mock go-live drill staged",
       description: "Rehearsal phases and handoff evidence path reviewed in the go-live drill page.",
-      href: buildChecklistHref("/go-live", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel),
+      href: buildVerificationChecklistHandoffHref({ pathname: "/go-live?surface=go_live", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel }),
       state: demoRunSucceeded ? "in_progress" : "pending",
     },
   ];
@@ -431,6 +442,69 @@ export function Week8VerificationChecklist({
         </CardContent>
       </Card>
 
+      {latestDemoRun ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Latest demo run context</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-xs text-muted">
+              Run <span className="font-medium text-foreground">{latestDemoRun.run_id}</span> · status{" "}
+              <span className="font-medium text-foreground">{latestDemoRun.status}</span> · trace{" "}
+              <span className="font-medium text-foreground">{latestDemoRun.trace_id}</span>
+            </p>
+            {latestDemoRunHint?.status_label ? (
+              <p className="text-xs text-muted">Hint: {latestDemoRunHint.status_label}</p>
+            ) : null}
+            {deliveryGuidance?.summary ? (
+              <p className="text-xs text-muted">Delivery: {deliveryGuidance.summary}</p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={buildVerificationChecklistHandoffHref({ pathname: primarySurface, ...handoffHrefArgs })}
+                className="inline-flex items-center justify-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                {primaryLabel}
+              </Link>
+              {demoRunSucceeded && verificationIncomplete ? (
+                <Link
+                  href={buildVerificationChecklistHandoffHref({
+                    pathname: "/usage",
+                    ...handoffHrefArgs,
+                  })}
+                  className="inline-flex items-center justify-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                >
+                  Collect usage evidence
+                </Link>
+              ) : null}
+              {goLiveStatus === "complete" ? (
+                <Link
+                  href={buildVerificationChecklistHandoffHref({
+                    pathname: "/go-live?surface=go_live",
+                    ...handoffHrefArgs,
+                  })}
+                  className="inline-flex items-center justify-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+                >
+                  Lock go-live drill
+                </Link>
+              ) : null}
+            </div>
+            <div className="rounded-xl border border-border bg-background px-3 py-2 text-xs text-muted">
+              <p className="font-medium text-foreground">Rollback prep</p>
+              <p className="mt-1">
+                Review controlled rollback guidance before widening scope, especially if the demo run needed recovery.
+              </p>
+              <Link
+                href={buildVerificationChecklistHandoffHref({ pathname: "/settings?intent=rollback", ...handoffHrefArgs })}
+                className="mt-2 inline-flex items-center justify-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+              >
+                Review rollback guidance
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {isOnboardingFlow ? (
         <Card>
           <CardHeader>
@@ -470,9 +544,9 @@ export function Week8VerificationChecklist({
           <p>
             After ticking the Week 8 checklist, keep the same workspace context and use this page as the launch pad
             for the mock go-live drill. Record the run trace in{" "}
-            <Link href={buildChecklistHref("/usage", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel)}>Usage</Link>, verify handoff
+            <Link href={buildVerificationChecklistHandoffHref({ pathname: "/usage", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel })}>Usage</Link>, verify handoff
             notes in the delivery tracking panel on this page, and then open the{" "}
-            <Link href={buildChecklistHref("/go-live", normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, normalizedDeliveryContext, normalizedRecentTrackKey, normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel)}>Go-live drill</Link> to
+            <Link href={buildVerificationChecklistHandoffHref({ pathname: "/go-live?surface=go_live", source: normalizedSource, week8Focus, attentionWorkspace, attentionOrganization, deliveryContext: normalizedDeliveryContext, recentTrackKey: normalizedRecentTrackKey, recentUpdateKind: normalizedRecentUpdateKind, evidenceCount, recentOwnerLabel })}>Go-live drill</Link> to
             rehearse the full flow. Each link simply switches context back to the workspace and carries the readiness
             focus along.
           </p>

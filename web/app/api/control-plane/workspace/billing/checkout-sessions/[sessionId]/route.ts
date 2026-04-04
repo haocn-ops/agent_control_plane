@@ -1,72 +1,19 @@
+import { proxyControlPlane } from "@/lib/control-plane-proxy";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+import { buildBillingGetProxyInit } from "../../route-helpers";
 
 export const dynamic = "force-dynamic";
 
-function getBaseUrl(): string {
-  return (
-    process.env.CONTROL_PLANE_BASE_URL ??
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL ??
-    ""
-  ).replace(/\/$/, "");
-}
-
-function getAuthenticatedSubject(request: Request, fallbackSubjectId?: string): string {
-  return (
-    request.headers.get("x-authenticated-subject") ??
-    request.headers.get("cf-access-authenticated-user-email") ??
-    fallbackSubjectId ??
-    "codex@local"
-  );
-}
-
-function getAuthenticatedRoles(request: Request, fallbackRoles?: string): string {
-  return (
-    request.headers.get("x-authenticated-roles") ??
-    request.headers.get("cf-access-authenticated-user-groups") ??
-    fallbackRoles ??
-    "platform_admin"
-  );
-}
-
 export async function GET(
-  request: Request,
+  _request: Request,
   { params }: { params: { sessionId: string } },
 ) {
-  const baseUrl = getBaseUrl();
-  if (!baseUrl) {
-    return Response.json(
-      {
-        error: {
-          code: "control_plane_base_missing",
-          message: "CONTROL_PLANE_BASE_URL is not configured",
-        },
-      },
-      { status: 503 },
-    );
-  }
-
   const workspaceContext = await resolveWorkspaceContextForServer();
   const { sessionId } = params;
-  const upstream = await fetch(
-    `${baseUrl}/api/v1/saas/workspaces/${workspaceContext.workspace.workspace_id}/billing/checkout-sessions/${sessionId}`,
+  return proxyControlPlane(
+    `/api/v1/saas/workspaces/${workspaceContext.workspace.workspace_id}/billing/checkout-sessions/${sessionId}`,
     {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        "x-authenticated-subject": getAuthenticatedSubject(request, workspaceContext.workspace.subject_id),
-        "x-authenticated-roles": getAuthenticatedRoles(request, workspaceContext.workspace.subject_roles),
-        "x-workspace-id": workspaceContext.workspace.workspace_id,
-        "x-workspace-slug": workspaceContext.workspace.slug,
-        "x-tenant-id": workspaceContext.workspace.tenant_id,
-      },
-      cache: "no-store",
+      init: buildBillingGetProxyInit(),
     },
   );
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
-    },
-  });
 }

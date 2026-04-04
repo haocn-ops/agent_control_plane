@@ -1,11 +1,12 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchWorkspaceInvitations, revokeWorkspaceInvitation } from "@/services/control-plane";
+import { ControlPlaneRequestError, fetchWorkspaceInvitations, revokeWorkspaceInvitation } from "@/services/control-plane";
 
 function formatDate(value: string | null): string {
   if (!value) {
@@ -15,17 +16,32 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleString();
 }
 
+function formatInvitationRevokeError(error: unknown): string {
+  if (error instanceof ControlPlaneRequestError) {
+    return `Invitation revoke failed: ${error.message ?? error.code ?? "unknown error"}`;
+  }
+  return "Invitation revoke failed. Check workspace permissions and retry.";
+}
+
 export function InvitationsPanel({ workspaceSlug }: { workspaceSlug: string }) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["workspace-invitations", workspaceSlug],
     queryFn: fetchWorkspaceInvitations,
   });
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const revokeMutation = useMutation({
+    onMutate: () => {
+      setActionError(null);
+    },
     mutationFn: revokeWorkspaceInvitation,
     onSuccess: async () => {
+      setActionError(null);
       await queryClient.invalidateQueries({ queryKey: ["workspace-invitations", workspaceSlug] });
+    },
+    onError: (error: unknown) => {
+      setActionError(formatInvitationRevokeError(error));
     },
   });
 
@@ -110,8 +126,8 @@ export function InvitationsPanel({ workspaceSlug }: { workspaceSlug: string }) {
           ))}
         </div>
 
-        {revokeMutation.isError ? (
-          <p className="text-xs text-muted">Invitation revoke failed. Check workspace permissions and retry.</p>
+        {actionError ? (
+          <p className="text-xs text-red-600">{actionError}</p>
         ) : null}
       </CardContent>
     </Card>

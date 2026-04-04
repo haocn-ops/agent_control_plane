@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
+import { buildAdminReturnHref } from "@/lib/handoff-query";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -157,34 +158,6 @@ function describeRecentDeliveryContext(context: RecentDeliveryContext): string |
   return `${details.join(" · ")}.`;
 }
 
-function buildReturnUrl(
-  source: FollowUpSource,
-  surface: FollowUpSurface,
-  workspaceSlug: string,
-  week8Focus?: string | null,
-  attentionOrganization?: string | null,
-  recentTrackKey?: "verification" | "go_live" | null,
-): string {
-  const params = new URLSearchParams();
-  if (source === "admin-attention") {
-    const queueSurface =
-      surface === "verification" || surface === "go_live" ? surface : recentTrackKey ?? null;
-    if (queueSurface) {
-      params.set("queue_surface", queueSurface);
-    }
-    params.set("queue_returned", "1");
-  }
-  if (source === "admin-readiness" && week8Focus) {
-    params.set("week8_focus", week8Focus);
-    params.set("readiness_returned", "1");
-  }
-  params.set("attention_workspace", workspaceSlug);
-  if (attentionOrganization) {
-    params.set("attention_organization", attentionOrganization);
-  }
-  return `/admin?${params.toString()}`;
-}
-
 export function AdminFollowUpNotice({
   source,
   workspaceSlug,
@@ -236,6 +209,15 @@ export function AdminFollowUpNotice({
   const baseReturnLabel = isReadinessFlow ? "Return to admin readiness view" : "Return to admin queue";
   const trackLabel = normalizedRecentTrackKey ? deliveryTrackLabel(normalizedRecentTrackKey) : null;
   const returnLabel = trackLabel ? `${baseReturnLabel} (continue ${trackLabel})` : baseReturnLabel;
+  const queueSurface =
+    surface === "verification" || surface === "go_live" ? surface : normalizedRecentTrackKey ?? null;
+  const returnHref = buildAdminReturnHref("/admin", {
+    source,
+    queueSurface,
+    week8Focus,
+    attentionWorkspace: returnWorkspaceSlug,
+    attentionOrganization,
+  });
 
   return (
     <Card>
@@ -273,14 +255,7 @@ export function AdminFollowUpNotice({
         ) : null}
         <div className="mt-2">
           <Link
-            href={buildReturnUrl(
-              source,
-              surface,
-              returnWorkspaceSlug,
-              week8Focus,
-              attentionOrganization,
-              normalizedRecentTrackKey,
-            )}
+            href={returnHref}
             className="inline-flex w-full items-center justify-center rounded-xl border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition hover:bg-background"
           >
             {returnLabel}

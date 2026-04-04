@@ -11,11 +11,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   ControlPlaneAdminDeliveryUpdateKind,
+  ControlPlaneContractMeta,
   ControlPlaneDeliveryEvidenceLink,
   ControlPlaneDeliveryTrackStatus,
   ControlPlaneWorkspaceDeliveryTrack,
   ControlPlaneWorkspaceDeliveryTrackUpsert,
 } from "@/lib/control-plane-types";
+import { buildAdminReturnHref, buildHandoffHref } from "@/lib/handoff-query";
 import { fetchWorkspaceDeliveryTrack, saveWorkspaceDeliveryTrack } from "@/services/control-plane";
 
 type DeliveryPanelSource = "onboarding" | "admin-readiness" | "admin-attention";
@@ -127,36 +129,17 @@ function buildContextHref(
   recentUpdateKind?: ControlPlaneAdminDeliveryUpdateKind | null,
   evidenceCount?: number | null,
 ): string {
-  const searchParams = new URLSearchParams();
-  if (source) {
-    searchParams.set("source", source);
-  }
-  if (surface) {
-    searchParams.set("surface", surface);
-  }
-  if (week8Focus) {
-    searchParams.set("week8_focus", week8Focus);
-  }
-  if (attentionWorkspace) {
-    searchParams.set("attention_workspace", attentionWorkspace);
-  }
-  if (attentionOrganization) {
-    searchParams.set("attention_organization", attentionOrganization);
-  }
-  if (deliveryContext) {
-    searchParams.set("delivery_context", deliveryContext);
-  }
-  if (recentTrackKey) {
-    searchParams.set("recent_track_key", recentTrackKey);
-  }
-  if (recentUpdateKind) {
-    searchParams.set("recent_update_kind", recentUpdateKind);
-  }
-  if (typeof evidenceCount === "number") {
-    searchParams.set("evidence_count", String(evidenceCount));
-  }
-  const query = searchParams.toString();
-  return query ? `${pathname}?${query}` : pathname;
+  return buildHandoffHref(pathname, {
+    source,
+    surface,
+    week8Focus,
+    attentionWorkspace,
+    attentionOrganization,
+    deliveryContext,
+    recentTrackKey,
+    recentUpdateKind,
+    evidenceCount,
+  });
 }
 
 function buildAdminReturnUrl(
@@ -166,20 +149,13 @@ function buildAdminReturnUrl(
   week8Focus?: string | null,
   attentionOrganization?: string | null,
 ): string {
-  const params = new URLSearchParams();
-  if (source === "admin-attention" && surface) {
-    params.set("queue_surface", surface);
-    params.set("queue_returned", "1");
-  }
-  if (source === "admin-readiness" && week8Focus) {
-    params.set("week8_focus", week8Focus);
-    params.set("readiness_returned", "1");
-  }
-  params.set("attention_workspace", workspaceSlug);
-  if (attentionOrganization) {
-    params.set("attention_organization", attentionOrganization);
-  }
-  return `/admin?${params.toString()}`;
+  return buildAdminReturnHref("/admin", {
+    source,
+    queueSurface: surface,
+    week8Focus,
+    attentionWorkspace: workspaceSlug,
+    attentionOrganization,
+  });
 }
 
 const statusOptions: Array<{ value: ControlPlaneDeliveryTrackStatus; label: string }> = [
@@ -193,6 +169,50 @@ const badgeVariant: Record<ControlPlaneDeliveryTrackStatus, "strong" | "default"
   in_progress: "default",
   complete: "strong",
 };
+
+function contractSourceBadgeVariant(
+  source?: ControlPlaneContractMeta["source"] | null,
+): "strong" | "default" | "subtle" {
+  if (source === "live") {
+    return "strong";
+  }
+  if (source === "fallback_error") {
+    return "default";
+  }
+  return "subtle";
+}
+
+function contractSourceLabel(source?: ControlPlaneContractMeta["source"] | null): string {
+  if (source === "live") {
+    return "Live contract";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Fallback: feature gate";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Fallback: control plane unavailable";
+  }
+  if (source === "fallback_error") {
+    return "Fallback: preview data";
+  }
+  return "Contract source unknown";
+}
+
+function contractSourceDescription(source?: ControlPlaneContractMeta["source"] | null): string {
+  if (source === "live") {
+    return "Delivery track data is loaded from live control-plane responses.";
+  }
+  if (source === "fallback_feature_gate") {
+    return "Delivery track is using fallback guidance because the feature is not available on this plan.";
+  }
+  if (source === "fallback_control_plane_unavailable") {
+    return "Delivery track is using preview fallback data because the control plane is unavailable.";
+  }
+  if (source === "fallback_error") {
+    return "Delivery track is using preview fallback data and should not be treated as live evidence.";
+  }
+  return "Delivery track contract source is unavailable.";
+}
 
 function deliveryStatusHint(sectionKey: SectionKey, status: ControlPlaneDeliveryTrackStatus): string {
   if (status === "complete") {
@@ -496,6 +516,8 @@ export function WorkspaceDeliveryTrackPanel({
     queryFn: fetchWorkspaceDeliveryTrack,
     staleTime: 5 * 60 * 1000,
   });
+  const deliveryContractMeta = data?.contract_meta ?? null;
+  const deliveryContractSource = deliveryContractMeta?.source ?? (data ? "live" : null);
 
   const sectionData = data?.[sectionKey];
   const otherSectionKey: SectionKey = sectionKey === "verification" ? "go_live" : "verification";
@@ -647,6 +669,15 @@ export function WorkspaceDeliveryTrackPanel({
           <Badge variant={badgeVariant[currentStatus]}>{currentStatus.replace("_", " ")}</Badge>
         </CardTitle>
         <p className="text-xs text-muted">{description}</p>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Badge variant={contractSourceBadgeVariant(deliveryContractSource)}>
+            {contractSourceLabel(deliveryContractSource)}
+          </Badge>
+          <p className="text-xs text-muted">{contractSourceDescription(deliveryContractSource)}</p>
+        </div>
+        {deliveryContractMeta?.issue ? (
+          <p className="text-xs text-muted">Contract note: {deliveryContractMeta.issue.message}</p>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         {isLoading ? <p className="text-xs text-muted">Loading delivery track...</p> : null}

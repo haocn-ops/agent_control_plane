@@ -8,6 +8,7 @@ import type {
   UserRow,
   WorkspaceAccessRow,
   WorkspaceDeliveryTrackRow,
+  WorkspaceEnterpriseFeatureConfigRow,
   WorkspaceInvitationRow,
   WorkspaceMembershipRow,
   WorkspacePlanSubscriptionRow,
@@ -388,6 +389,63 @@ export async function listWorkspaceDeliveryTracks(
     .run();
 
   return (result.results ?? []) as unknown as WorkspaceDeliveryTrackAccessRow[];
+}
+
+export async function getWorkspaceEnterpriseFeatureConfig(
+  env: Env,
+  workspaceId: string,
+  featureKey: WorkspaceEnterpriseFeatureConfigRow["feature_key"],
+): Promise<WorkspaceEnterpriseFeatureConfigRow | null> {
+  return env.DB.prepare(
+    `SELECT config_id, workspace_id, organization_id, feature_key, status, config_json,
+            configured_by_user_id, configured_at, created_at, updated_at
+       FROM workspace_enterprise_feature_configs
+      WHERE workspace_id = ?1 AND feature_key = ?2`,
+  )
+    .bind(workspaceId, featureKey)
+    .first<WorkspaceEnterpriseFeatureConfigRow>();
+}
+
+export async function upsertWorkspaceEnterpriseFeatureConfig(
+  env: Env,
+  args: {
+    configId: string;
+    workspaceId: string;
+    organizationId: string;
+    featureKey: WorkspaceEnterpriseFeatureConfigRow["feature_key"];
+    status: WorkspaceEnterpriseFeatureConfigRow["status"];
+    configJson: string;
+    configuredByUserId: string | null;
+    configuredAt: string;
+    createdAt: string;
+    updatedAt: string;
+  },
+): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO workspace_enterprise_feature_configs (
+        config_id, workspace_id, organization_id, feature_key, status, config_json,
+        configured_by_user_id, configured_at, created_at, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+      ON CONFLICT(workspace_id, feature_key) DO UPDATE SET
+        status = excluded.status,
+        config_json = excluded.config_json,
+        configured_by_user_id = excluded.configured_by_user_id,
+        configured_at = excluded.configured_at,
+        updated_at = excluded.updated_at`,
+  )
+    .bind(
+      args.configId,
+      args.workspaceId,
+      args.organizationId,
+      args.featureKey,
+      args.status,
+      args.configJson,
+      args.configuredByUserId,
+      args.configuredAt,
+      args.createdAt,
+      args.updatedAt,
+    )
+    .run();
 }
 
 export async function getWorkspacePlanSubscription(

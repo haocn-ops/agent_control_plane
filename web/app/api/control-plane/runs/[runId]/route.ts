@@ -1,4 +1,4 @@
-import { proxyControlPlane } from "@/lib/control-plane-proxy";
+import { proxyRunDetailRequest } from "../route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -6,5 +6,5 @@ export async function GET(
   _request: Request,
   { params }: { params: { runId: string } },
 ) {
-  return proxyControlPlane(`/api/v1/runs/${params.runId}`);
+  return proxyRunDetailRequest({ request: _request, runId: params.runId });
 }

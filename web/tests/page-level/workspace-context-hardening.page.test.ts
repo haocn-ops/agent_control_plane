@@ -1,0 +1,86 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const testDir = path.dirname(fileURLToPath(import.meta.url));
+const topbarPath = path.resolve(testDir, "../../components/topbar.tsx");
+const membersPanelPath = path.resolve(testDir, "../../components/members/members-panel.tsx");
+const settingsPanelPath = path.resolve(testDir, "../../components/settings/workspace-settings-panel.tsx");
+
+async function readSource(filePath: string): Promise<string> {
+  return readFile(filePath, "utf8");
+}
+
+test("Topbar keeps fallback-aware context badge and warning semantics", async () => {
+  const source = await readSource(topbarPath);
+
+  assert.match(source, /variant=\{sourceDetail\.is_fallback \? "default" : "subtle"\}/);
+  assert.match(source, /context: \{sourceDetail\.label\}/);
+  assert.match(
+    source,
+    /sourceDetail\.warning \? <Badge variant="default">context warning: non-production fallback<\/Badge> : null/,
+  );
+});
+
+test("workspace context route shares warning header when fallback warns", async () => {
+  const source = await readSource(path.resolve(testDir, "../../app/api/workspace-context/route.ts"));
+
+  assert.match(source, /response\.headers\.set\("x-govrail-workspace-context-warning",/);
+});
+
+test("Members panel keeps metadata-guard fallback messaging and no-members live-only semantics", async () => {
+  const source = await readSource(membersPanelPath);
+
+  assert.match(source, /const isMetadataGuard = contract\?\.source === "workspace_context_not_metadata";/);
+  assert.match(
+    source,
+    /Members data is intentionally hidden until metadata-backed workspace context is available\./,
+  );
+  assert.match(source, /const isFallbackError = contract\?\.source === "fallback_error";/);
+  assert.match(source, /contract\?\.source === "live" && members\.length === 0/);
+});
+
+test("Members panel keeps feature-gate and control-plane-unavailable fallback semantics", async () => {
+  const source = await readSource(membersPanelPath);
+
+  assert.match(source, /const isFeatureGate = contract\?\.source === "fallback_feature_gate";/);
+  assert.match(source, /const isControlPlaneUnavailable = contract\?\.source === "fallback_control_plane_unavailable";/);
+  assert.match(source, /return "Plan-gated members";/);
+  assert.match(source, /return "Control plane unavailable";/);
+  assert.match(
+    source,
+    /Members visibility for this workspace is currently plan-gated\. Upgrade the workspace plan before using this surface\./,
+  );
+  assert.match(
+    source,
+    /Members endpoint is waiting for live control-plane configuration\. Verify the deployment wiring, then retry\./,
+  );
+});
+
+test("Settings panel keeps enterprise saved-configuration contracts for SSO and dedicated environment", async () => {
+  const source = await readSource(settingsPanelPath);
+
+  assert.match(source, /\{ssoConfigured \? \(/);
+  assert.match(source, /Saved configuration/);
+  assert.match(source, /Configured domains/);
+  assert.match(source, /Entrypoint URL/);
+
+  assert.match(source, /\{dedicatedConfigured \? \(/);
+  assert.match(source, /Saved provisioning request/);
+  assert.match(source, /Requester email/);
+  assert.match(source, /Data classification/);
+  assert.match(source, /Requested capacity/);
+  assert.match(source, /Requested SLA/);
+});
+
+test("Settings panel keeps audit export section and plan-gated/export action semantics", async () => {
+  const source = await readSource(settingsPanelPath);
+
+  assert.match(source, /Audit export/);
+  assert.match(source, /Download audit export/);
+  assert.match(source, /Export disabled reason: current plan does not include audit export\./);
+  assert.match(source, /Attach in verification/);
+  assert.match(source, /Carry to go-live drill/);
+});

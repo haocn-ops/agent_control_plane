@@ -1,68 +1,38 @@
+import { proxyControlPlane, requireMetadataWorkspaceContext } from "@/lib/control-plane-proxy";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+import { buildProxyControlPlanePostInit } from "../post-route-helpers";
+import { buildWorkspaceEnterprisePostInit } from "../route-helpers";
 
 export const dynamic = "force-dynamic";
 
-function getBaseUrl(): string {
-  return (
-    process.env.CONTROL_PLANE_BASE_URL ??
-    process.env.NEXT_PUBLIC_CONTROL_PLANE_BASE_URL ??
-    ""
-  ).replace(/\/$/, "");
-}
-
-function getAuthenticatedSubject(request: Request, fallbackSubjectId?: string): string {
-  return (
-    request.headers.get("x-authenticated-subject") ??
-    request.headers.get("cf-access-authenticated-user-email") ??
-    fallbackSubjectId ??
-    "codex@local"
-  );
-}
-
-function getAuthenticatedRoles(request: Request, fallbackRoles?: string): string {
-  return (
-    request.headers.get("x-authenticated-roles") ??
-    request.headers.get("cf-access-authenticated-user-groups") ??
-    fallbackRoles ??
-    "platform_admin"
-  );
-}
-
-export async function GET(request: Request) {
-  const baseUrl = getBaseUrl();
-  if (!baseUrl) {
-    return Response.json(
-      {
-        error: {
-          code: "control_plane_base_missing",
-          message: "CONTROL_PLANE_BASE_URL is not configured",
-        },
+export async function GET() {
+  const workspaceContext = await resolveWorkspaceContextForServer();
+  return proxyControlPlane(
+    `/api/v1/saas/workspaces/${workspaceContext.workspace.workspace_id}/dedicated-environment`,
+    {
+      init: {
+        method: "GET",
       },
-      { status: 503 },
-    );
+    },
+  );
+}
+
+export async function POST(request: Request) {
+  const workspaceContext = await resolveWorkspaceContextForServer();
+  const metadataGuard = requireMetadataWorkspaceContext({
+    workspaceContext,
+    message:
+      "Dedicated environment updates require metadata-backed SaaS context. Preview and env fallback modes are disabled for this endpoint.",
+  });
+  if (metadataGuard) {
+    return metadataGuard;
   }
 
-  const workspaceContext = await resolveWorkspaceContextForServer();
-  const upstream = await fetch(
-    `${baseUrl}/api/v1/saas/workspaces/${workspaceContext.workspace.workspace_id}/dedicated-environment`,
+  return proxyControlPlane(
+    `/api/v1/saas/workspaces/${workspaceContext.workspace.workspace_id}/dedicated-environment`,
     {
-      method: "GET",
-      headers: {
-        accept: "application/json",
-        "x-authenticated-subject": getAuthenticatedSubject(request, workspaceContext.workspace.subject_id),
-        "x-authenticated-roles": getAuthenticatedRoles(request, workspaceContext.workspace.subject_roles),
-        "x-workspace-id": workspaceContext.workspace.workspace_id,
-        "x-workspace-slug": workspaceContext.workspace.slug,
-        "x-tenant-id": workspaceContext.workspace.tenant_id,
-      },
-      cache: "no-store",
+      // init: await buildProxyControlPlanePostInit({ request, accept: request.headers.get("accept") ?? null, contentType: request.headers.get("content-type") ?? null, emptyBodyAsUndefined: true, })
+      init: await buildWorkspaceEnterprisePostInit(request),
     },
   );
-
-  return new Response(upstream.body, {
-    status: upstream.status,
-    headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
-    },
-  });
 }

@@ -4,67 +4,33 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 import { headers } from "next/headers";
+import { buildHandoffHref, type HandoffQueryArgs } from "@/lib/handoff-query";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 export const dynamic = "force-dynamic";
 
-type HandoffArgs = {
-  pathname: string;
-  source?: string | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: string | null;
-  recentTrackKey?: string | null;
-  recentUpdateKind?: string | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-  runId?: string | null;
-};
+function buildArtifactsHandoffHref(args: HandoffQueryArgs & { pathname: string; runId?: string | null }): string {
+  const { pathname, runId, ...query } = args;
+  const href = buildHandoffHref(pathname, query, { preserveExistingQuery: true });
+  if (!runId) {
+    return href;
+  }
 
-function buildHandoffLink(args: HandoffArgs): string {
-  const searchParams = new URLSearchParams();
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  if (args.runId) {
-    searchParams.set("run_id", args.runId);
-  }
-  const query = searchParams.toString();
-  return query ? `${args.pathname}?${query}` : args.pathname;
+  const [basePath, rawQuery] = href.split("?");
+  const searchParams = new URLSearchParams(rawQuery ?? "");
+  searchParams.set("run_id", runId);
+  const finalQuery = searchParams.toString();
+  return finalQuery ? `${basePath}?${finalQuery}` : basePath;
 }
 
 const evidenceGuidance = {
   body:
     "Artifacts bundle execution evidence, logs, and audit payloads that support the verification checklist and mock go-live drill. This page does not change admin state; it only helps you carry the same workspace handoff into the next evidence surface.",
   links: [
-    { label: "Continue to verification", path: "/verification" },
-    { label: "Inspect go-live drill", path: "/go-live" },
+    { label: "Continue to verification", path: "/verification?surface=verification" },
+    { label: "Inspect go-live drill", path: "/go-live?surface=go_live" },
     { label: "Review logs", path: "/logs" },
+    { label: "Inspect settings handoff", path: "/settings" },
   ],
 };
 
@@ -203,7 +169,7 @@ export default async function ArtifactsPage({
             {evidenceGuidance.links.map((link) => (
               <Link
                 key={link.label}
-                href={buildHandoffLink({ pathname: link.path, ...handoffArgs })}
+                href={buildArtifactsHandoffHref({ pathname: link.path, ...handoffArgs })}
                 className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
               >
                 {link.label}
@@ -221,7 +187,7 @@ export default async function ArtifactsPage({
             <p>This workspace does not have a recorded onboarding demo run, so there are no live artifacts to show.</p>
             <Link
               className="text-foreground underline underline-offset-4"
-              href={buildHandoffLink({ pathname: "/playground", ...handoffArgs })}
+              href={buildArtifactsHandoffHref({ pathname: "/playground", ...handoffArgs })}
             >
               Start a run in Playground
             </Link>

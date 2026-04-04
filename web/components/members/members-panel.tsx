@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchWorkspaceMembers } from "@/services/control-plane";
+import { fetchWorkspaceMembersViewModel } from "@/services/control-plane";
 
 function formatJoinedAt(value: string | null): string {
   if (!value) {
@@ -17,10 +17,37 @@ function formatJoinedAt(value: string | null): string {
 export function MembersPanel({ workspaceSlug }: { workspaceSlug: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["workspace-members", workspaceSlug],
-    queryFn: fetchWorkspaceMembers,
+    queryFn: fetchWorkspaceMembersViewModel,
   });
 
-  const members = data ?? [];
+  const members = data?.items ?? [];
+  const contract = data?.contract;
+  const isMetadataGuard = contract?.source === "workspace_context_not_metadata";
+  const isFeatureGate = contract?.source === "fallback_feature_gate";
+  const isControlPlaneUnavailable = contract?.source === "fallback_control_plane_unavailable";
+  const isFallbackError = contract?.source === "fallback_error";
+  const contextSource = typeof contract?.details?.source === "string" ? contract.details.source : null;
+  const workspaceSlugHint =
+    typeof contract?.details?.workspace_slug === "string" ? contract.details.workspace_slug : null;
+
+  function getContractBadgeLabel(): string {
+    if (!contract) {
+      return "";
+    }
+    if (contract.source === "live") {
+      return "Live members contract";
+    }
+    if (contract.source === "workspace_context_not_metadata") {
+      return "Metadata context required";
+    }
+    if (contract.source === "fallback_feature_gate") {
+      return "Plan-gated members";
+    }
+    if (contract.source === "fallback_control_plane_unavailable") {
+      return "Control plane unavailable";
+    }
+    return "Fallback error";
+  }
 
   return (
     <Card>
@@ -28,7 +55,7 @@ export function MembersPanel({ workspaceSlug }: { workspaceSlug: string }) {
         <CardTitle>Workspace members</CardTitle>
         <CardDescription>Role and status visibility for the selected workspace.</CardDescription>
       </CardHeader>
-     <CardContent className="space-y-3">
+      <CardContent className="space-y-3">
         <div className="rounded-2xl border border-border bg-background p-4 text-xs text-muted">
           <p className="font-medium text-foreground">Who to invite first</p>
           <p className="mt-1">
@@ -37,9 +64,79 @@ export function MembersPanel({ workspaceSlug }: { workspaceSlug: string }) {
             workspace has real usage or billing evidence.
           </p>
         </div>
+        {contract ? (
+          <div className="rounded-2xl border border-border bg-background p-4 text-xs text-muted">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge
+                variant={
+                  contract.source === "live"
+                    ? "strong"
+                    : contract.source === "workspace_context_not_metadata"
+                    ? "default"
+                    : "subtle"
+                }
+              >
+                {getContractBadgeLabel()}
+              </Badge>
+              {contract.code ? <Badge variant="subtle">code: {contract.code}</Badge> : null}
+              {typeof contract.status === "number" ? <Badge variant="subtle">status: {contract.status}</Badge> : null}
+            </div>
+            <p className="mt-2">{contract.message}</p>
+            {isMetadataGuard ? (
+              <p className="mt-1">
+                Current context source: <span className="font-medium text-foreground">{contextSource ?? "unknown"}</span>.{" "}
+                Open onboarding to establish metadata-backed workspace context, then return to members.
+              </p>
+            ) : null}
+            {workspaceSlugHint ? (
+              <p className="mt-1">
+                Workspace hint: <span className="font-medium text-foreground">{workspaceSlugHint}</span>
+              </p>
+            ) : null}
+            {isFeatureGate ? (
+              <p className="mt-1">
+                Invite and role management can stay staged for this workspace until the plan enables the members surface.
+              </p>
+            ) : null}
+            {isControlPlaneUnavailable ? (
+              <p className="mt-1">
+                Members will recover automatically after the live control-plane endpoint is configured again.
+              </p>
+            ) : null}
+            {isFallbackError ? (
+              <p className="mt-1">
+                You can continue with other setup surfaces while members is unavailable, then retry after control-plane recovery.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {isLoading ? <p className="text-sm text-muted">Loading members...</p> : null}
-        {isError ? <p className="text-sm text-muted">Members endpoint unavailable, showing fallback state.</p> : null}
-        {!isLoading && members.length === 0 ? (
+        {isError ? (
+          <p className="text-sm text-muted">
+            Members request failed unexpectedly. Refresh this page and verify workspace context/session headers.
+          </p>
+        ) : null}
+        {!isLoading && isMetadataGuard ? (
+          <p className="text-sm text-muted">
+            Members data is intentionally hidden until metadata-backed workspace context is available.
+          </p>
+        ) : null}
+        {!isLoading && isFallbackError ? (
+          <p className="text-sm text-muted">
+            Members endpoint is temporarily unavailable. Existing setup can continue; retry later for member visibility.
+          </p>
+        ) : null}
+        {!isLoading && isFeatureGate ? (
+          <p className="text-sm text-muted">
+            Members visibility for this workspace is currently plan-gated. Upgrade the workspace plan before using this surface.
+          </p>
+        ) : null}
+        {!isLoading && isControlPlaneUnavailable ? (
+          <p className="text-sm text-muted">
+            Members endpoint is waiting for live control-plane configuration. Verify the deployment wiring, then retry.
+          </p>
+        ) : null}
+        {!isLoading && contract?.source === "live" && members.length === 0 ? (
           <p className="text-sm text-muted">No members found for this workspace yet.</p>
         ) : null}
 

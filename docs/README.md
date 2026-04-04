@@ -11,6 +11,7 @@
 - [../README.md](/Users/zh/Documents/codeX/agent_control_plane/README.md)
 - [../agent_control_plane_dev_spec_zh.md](/Users/zh/Documents/codeX/agent_control_plane/agent_control_plane_dev_spec_zh.md)
 - [saas_plan_zh.md](./saas_plan_zh.md)
+- [saas_v1_execution_plan_zh.md](./saas_v1_execution_plan_zh.md)
 - [saas_phase1_data_model_zh.md](./saas_phase1_data_model_zh.md)
 - [saas_week8_verification_checklist_zh.md](./saas_week8_verification_checklist_zh.md)（新增 delivery tracking panel、attention queue、返回 admin queue、organization drill-down、Week 8 readiness summary 以及 readiness drill-down 使用說明）
   - `/admin` 的 recent delivery activity 卡片現在也可以直接把 `attention_workspace`、`surface`（以及選擇性的 `attention_organization`）帶回治理 jump，這仍然是 navigation-only 的 follow-up contract，沒有 impersonation 或支援自動化的承諾。
@@ -38,7 +39,9 @@
 - [incident_response_checklist_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/incident_response_checklist_zh.md)
 - [secret_rotation_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/secret_rotation_runbook_zh.md)
 - [ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md)
+- [enterprise_surface_runbook_zh.md](./enterprise_surface_runbook_zh.md)
 - [saas_mock_go_live_drill_zh.md](./saas_mock_go_live_drill_zh.md)
+- [tests_observability_wave1_wave2_min_plan_zh.md](./tests_observability_wave1_wave2_min_plan_zh.md)
 - [final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md)
 - [flow_failure_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/flow_failure_runbook_zh.md)
 - [saas_week8_verification_checklist_zh.md](./saas_week8_verification_checklist_zh.md)
@@ -69,7 +72,10 @@
 | [secret:rotation:bundle](/Users/zh/Documents/codeX/agent_control_plane/scripts/render_secret_rotation_bundle.mjs) | 根據 rotation plan 生成 rotation-plan、checklist 與 rotate.sh |
 | [ops_handoff_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/ops_handoff_summary_zh.md) | 目前已落地環境、verify 證據與接手入口摘要 |
 | [final_delivery_summary_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/final_delivery_summary_zh.md) | 本輪交付的完成項、部署結果、驗收證據與下一步建議 |
+| [enterprise_surface_runbook_zh.md](./enterprise_surface_runbook_zh.md) | enterprise 能力（audit export / SSO / dedicated environment）啟用前提、入口、失敗回退與驗收手冊 |
+| [tests_observability_wave1_wave2_min_plan_zh.md](./tests_observability_wave1_wave2_min_plan_zh.md) | Wave 1/2 hardening 最小測試集（單元 / 契約 / 頁面級）與優先級落地計劃 |
 | [saas_plan_zh.md](./saas_plan_zh.md) | SaaS 化產品定位、資料模型、技術演進與 8 週里程碑 |
+| [saas_v1_execution_plan_zh.md](./saas_v1_execution_plan_zh.md) | SaaS v1 的 4 週執行計劃、並行開發工作流、檔案 ownership 與驗收標準 |
 | [saas_phase1_data_model_zh.md](./saas_phase1_data_model_zh.md) | SaaS 第一階段資料模型、workspace 與 tenant 映射，以及 migration 0004 說明 |
 | [tenant_onboarding_runbook_zh.md](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_onboarding_runbook_zh.md) | 新 tenant 接入步驟、tenant onboarding bundle 生成、驗收出口、回滾與交接資訊 |
 | [tenant_provisioning_request.example.json](/Users/zh/Documents/codeX/agent_control_plane/docs/tenant_provisioning_request.example.json) | 外部 provisioning / ticket / CMDB 可直接對接的 request manifest 範例 |

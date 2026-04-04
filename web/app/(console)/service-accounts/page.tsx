@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/page-header";
 import { CreateServiceAccountForm } from "@/components/service-accounts/create-service-account-form";
 import { ServiceAccountsPanel } from "@/components/service-accounts/service-accounts-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildHandoffHref } from "@/lib/handoff-query";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 function getParam(value?: string | string[] | undefined): string | null {
@@ -19,50 +20,6 @@ function normalizeRecentTrackKey(value?: string | null): "verification" | "go_li
     return value;
   }
   return null;
-}
-
-function buildPageHref(args: {
-  pathname: string;
-  source?: string | null;
-  week8Focus?: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: string | null;
-  recentTrackKey?: string | null;
-  recentUpdateKind?: string | null;
-  evidenceCount?: number | null;
-  recentOwnerLabel?: string | null;
-}): string {
-  const searchParams = new URLSearchParams();
-  if (args.source) {
-    searchParams.set("source", args.source);
-  }
-  if (args.week8Focus) {
-    searchParams.set("week8_focus", args.week8Focus);
-  }
-  if (args.attentionWorkspace) {
-    searchParams.set("attention_workspace", args.attentionWorkspace);
-  }
-  if (args.attentionOrganization) {
-    searchParams.set("attention_organization", args.attentionOrganization);
-  }
-  if (args.deliveryContext) {
-    searchParams.set("delivery_context", args.deliveryContext);
-  }
-  if (args.recentTrackKey) {
-    searchParams.set("recent_track_key", args.recentTrackKey);
-  }
-  if (args.recentUpdateKind) {
-    searchParams.set("recent_update_kind", args.recentUpdateKind);
-  }
-  if (typeof args.evidenceCount === "number") {
-    searchParams.set("evidence_count", String(args.evidenceCount));
-  }
-  if (args.recentOwnerLabel) {
-    searchParams.set("recent_owner_label", args.recentOwnerLabel);
-  }
-  const query = searchParams.toString();
-  return query ? `${args.pathname}?${query}` : args.pathname;
 }
 
 export default async function ServiceAccountsPage({
@@ -138,8 +95,7 @@ export default async function ServiceAccountsPage({
               Next step: issue the first API key, run the playground demo, capture the trace, and move into verification.
             </p>
             <Link
-              href={buildPageHref({
-                pathname: "/api-keys",
+              href={buildHandoffHref("/api-keys", {
                 source,
                 week8Focus,
                 attentionWorkspace: handoffWorkspace,

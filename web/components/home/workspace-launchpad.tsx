@@ -8,6 +8,20 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchCurrentWorkspace, fetchWorkspaceDeliveryTrack } from "@/services/control-plane";
 
+type OnboardingSurface =
+  | "onboarding"
+  | "members"
+  | "service_accounts"
+  | "service-accounts"
+  | "api_keys"
+  | "api-keys"
+  | "playground"
+  | "verification"
+  | "usage"
+  | "settings"
+  | "go_live"
+  | "go-live";
+
 function toneFromState(isReady: boolean, isInProgress = false): "ready" | "in_progress" | "blocked" {
   if (isReady) {
     return "ready";
@@ -32,17 +46,127 @@ function formatDateLabel(value?: string | null): string {
   return new Date(value).toLocaleDateString();
 }
 
-const nextStepLinks = [
-  { label: "Onboarding", path: "/onboarding" },
-  { label: "Members", path: "/members" },
-  { label: "Service accounts", path: "/service-accounts" },
-  { label: "API keys", path: "/api-keys" },
-  { label: "Playground", path: "/playground" },
-  { label: "Usage", path: "/usage" },
-  { label: "Settings", path: "/settings" },
-  { label: "Verification", path: "/verification" },
-  { label: "Go-live", path: "/go-live" },
+const nextStepLinks: Array<{ label: string; surface: OnboardingSurface }> = [
+  { label: "Onboarding", surface: "onboarding" },
+  { label: "Members", surface: "members" },
+  { label: "Service accounts", surface: "service-accounts" },
+  { label: "API keys", surface: "api-keys" },
+  { label: "Playground", surface: "playground" },
+  { label: "Usage", surface: "usage" },
+  { label: "Settings", surface: "settings" },
+  { label: "Verification", surface: "verification" },
+  { label: "Go-live", surface: "go-live" },
 ];
+
+function toSurfacePath(surface: OnboardingSurface): string {
+  if (surface === "service_accounts" || surface === "service-accounts") {
+    return "/service-accounts";
+  }
+  if (surface === "api_keys" || surface === "api-keys") {
+    return "/api-keys";
+  }
+  if (surface === "verification") {
+    return "/verification?surface=verification";
+  }
+  if (surface === "go_live" || surface === "go-live") {
+    return "/go-live?surface=go_live";
+  }
+  return `/${surface}`;
+}
+
+function getRecommendedNextStep(args: {
+  onboardingStatus?: {
+    checklist: {
+      baseline_ready: boolean;
+      service_account_created: boolean;
+      api_key_created: boolean;
+      demo_run_created: boolean;
+      demo_run_succeeded: boolean;
+    };
+    recommended_next_surface?: OnboardingSurface | null;
+    recommended_next_action?: string | null;
+    recommended_next_reason?: string | null;
+  } | null;
+}): { surface: OnboardingSurface; action: string; reason: string } {
+  if (args.onboardingStatus?.recommended_next_surface) {
+    return {
+      surface: args.onboardingStatus.recommended_next_surface,
+      action: args.onboardingStatus.recommended_next_action ?? "Continue onboarding",
+      reason:
+        args.onboardingStatus.recommended_next_reason ??
+        "This step is recommended directly by onboarding state.",
+    };
+  }
+
+  if (args.onboardingStatus?.checklist.baseline_ready !== true) {
+    return {
+      surface: "onboarding",
+      action: "Bootstrap baseline",
+      reason: "Bootstrap providers and policies before credential setup.",
+    };
+  }
+  if (args.onboardingStatus?.checklist.service_account_created !== true) {
+    return {
+      surface: "service_accounts",
+      action: "Create service account",
+      reason: "Service account is required for first governed API path.",
+    };
+  }
+  if (args.onboardingStatus?.checklist.api_key_created !== true) {
+    return {
+      surface: "api_keys",
+      action: "Create API key",
+      reason: "Create a narrow key (for example `runs:write`) for the first run.",
+    };
+  }
+  if (args.onboardingStatus?.checklist.demo_run_succeeded !== true) {
+    return {
+      surface: "playground",
+      action: args.onboardingStatus?.checklist.demo_run_created ? "Validate demo completion" : "Run first demo",
+      reason: "Use Playground to create or confirm first-run evidence.",
+    };
+  }
+  return {
+    surface: "verification",
+    action: "Capture verification evidence",
+    reason: "Demo succeeded; store evidence before go-live rehearsal.",
+  };
+}
+
+function getBlockers(args: {
+  onboardingStatus?: {
+    checklist: {
+      baseline_ready: boolean;
+      service_account_created: boolean;
+      api_key_created: boolean;
+      demo_run_created: boolean;
+      demo_run_succeeded: boolean;
+    };
+    blockers?: Array<{ message: string }> | null;
+  } | null;
+}): string[] {
+  if (args.onboardingStatus?.blockers && args.onboardingStatus.blockers.length > 0) {
+    return args.onboardingStatus.blockers.map((item) => item.message);
+  }
+  const blockers: string[] = [];
+  if (args.onboardingStatus?.checklist.baseline_ready !== true) {
+    blockers.push("Baseline providers and policies are not ready.");
+  }
+  if (args.onboardingStatus?.checklist.service_account_created !== true) {
+    blockers.push("Service account is missing.");
+  }
+  if (args.onboardingStatus?.checklist.api_key_created !== true) {
+    blockers.push("API key is missing.");
+  }
+  if (args.onboardingStatus?.checklist.demo_run_created && !args.onboardingStatus.checklist.demo_run_succeeded) {
+    blockers.push("Demo run exists but has not succeeded.");
+  }
+  return blockers;
+}
+
+function filterTextLines(lines: Array<string | null | undefined>): string[] {
+  return lines.filter((line): line is string => typeof line === "string" && line.trim() !== "");
+}
 
 export function WorkspaceLaunchpad({
   workspaceSlug,
@@ -71,10 +195,44 @@ export function WorkspaceLaunchpad({
     onboarding?.checklist.api_key_created === true;
   const demoRunCreated = onboarding?.checklist.demo_run_created === true;
   const demoRunReady = onboarding?.checklist.demo_run_succeeded === true;
+  const latestDemoRunHint = onboarding?.latest_demo_run_hint ?? null;
+  const deliveryGuidance = onboarding?.delivery_guidance ?? null;
   const billingReady = billing?.status_tone !== "warning";
   const verificationReady = delivery?.verification.status === "complete";
   const goLiveReady = delivery?.go_live.status === "complete";
   const mockGoLiveReadinessReady = goLiveReady || (verificationReady && demoRunReady && billingReady);
+  const recommendedNextStep = getRecommendedNextStep({ onboardingStatus: onboarding });
+  const onboardingBlockers = getBlockers({ onboardingStatus: onboarding });
+  const onboardingRecoveryTitle = latestDemoRunHint?.needs_attention
+    ? latestDemoRunHint.is_terminal
+      ? "Recover the first demo run"
+      : "Monitor the first demo run"
+    : onboarding?.checklist.demo_run_succeeded === true
+      ? "Capture first-demo evidence"
+      : "Follow the guided onboarding lane";
+  const onboardingRecoveryBody = latestDemoRunHint?.needs_attention
+    ? latestDemoRunHint.suggested_action ??
+      "Keep the demo lane active until the run is healthy, then continue into verification evidence capture."
+    : onboarding?.checklist.demo_run_succeeded === true
+      ? deliveryGuidance?.summary ?? "Demo succeeded. Capture verification evidence before go-live rehearsal."
+      : recommendedNextStep.reason;
+  const onboardingRecoveryPrimary =
+    latestDemoRunHint?.needs_attention && latestDemoRunHint.is_terminal
+      ? { label: "Retry in Playground", surface: "playground" as OnboardingSurface }
+      : latestDemoRunHint?.needs_attention
+        ? { label: "Inspect Playground status", surface: "playground" as OnboardingSurface }
+        : onboarding?.checklist.demo_run_succeeded === true
+          ? { label: "Open verification evidence lane", surface: "verification" as OnboardingSurface }
+          : { label: recommendedNextStep.action, surface: recommendedNextStep.surface };
+  const onboardingRecoverySecondary =
+    latestDemoRunHint?.needs_attention || onboarding?.checklist.demo_run_succeeded === true
+      ? { label: "Review verification checklist", surface: "verification" as OnboardingSurface }
+      : { label: "Review rollback prep in Settings", surface: "settings" as OnboardingSurface };
+  const onboardingRecoveryMetaLines = filterTextLines([
+    latestDemoRunHint?.status_label,
+    latestDemoRunHint?.suggested_action,
+    deliveryGuidance?.summary,
+  ]);
 
   return (
     <div className="space-y-8">
@@ -174,17 +332,75 @@ export function WorkspaceLaunchpad({
 
       <Card>
         <CardHeader>
-          <CardTitle>Next-step navigation</CardTitle>
+          <CardTitle>Onboarding recovery lane</CardTitle>
           <CardDescription>
-            Follow these surfaces to continue workspace launch checks, evidence capture, and readiness review.
+            Keep the latest demo run, verification evidence, and go-live rehearsal aligned with the current onboarding
+            state.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="font-medium text-foreground">{onboardingRecoveryTitle}</p>
+          <p className="text-xs text-muted">{onboardingRecoveryBody}</p>
+          {onboardingRecoveryMetaLines.length > 0 ? (
+            <div className="space-y-1 rounded-2xl border border-border bg-background p-3 text-xs text-muted">
+              {onboardingRecoveryMetaLines.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={toSurfacePath(onboardingRecoveryPrimary.surface)}
+              className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
+            >
+              {onboardingRecoveryPrimary.label}
+            </Link>
+            <Link
+              href={toSurfacePath(onboardingRecoverySecondary.surface)}
+              className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
+            >
+              {onboardingRecoverySecondary.label}
+            </Link>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recommended next step</CardTitle>
+          <CardDescription>
+            Use this as your primary handoff target, then continue with the rest of the navigation surfaces.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="rounded-2xl border border-border bg-background p-4 text-sm">
+            <p className="font-medium text-foreground">{recommendedNextStep.action}</p>
+            <p className="mt-1 text-xs text-muted">{recommendedNextStep.reason}</p>
+            <div className="mt-3">
+              <Link
+                href={toSurfacePath(recommendedNextStep.surface)}
+                className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
+              >
+                Open {recommendedNextStep.surface.replaceAll("_", " ")}
+              </Link>
+            </div>
+          </div>
+          {onboardingBlockers.length > 0 ? (
+            <div className="rounded-2xl border border-border bg-background p-4 text-xs text-muted">
+              <p className="text-[0.65rem] uppercase tracking-[0.2em] text-muted">Current blockers</p>
+              <ul className="mt-2 space-y-1 text-foreground">
+                {onboardingBlockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <p className="text-xs uppercase tracking-[0.15em] text-muted">All launch surfaces</p>
           <div className="flex flex-wrap gap-2">
             {nextStepLinks.map((entry) => (
               <Link
-                key={entry.path}
-                href={entry.path}
+                key={entry.label}
+                href={toSurfacePath(entry.surface)}
                 className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
               >
                 {entry.label}
