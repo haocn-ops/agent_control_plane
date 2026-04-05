@@ -40,7 +40,7 @@ function hasProductionBackedPlaywrightServer(playwrightConfig) {
     playwrightConfig.includes('const webServerTimeout = Number(process.env.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS ?? "240000")') &&
     playwrightConfig.includes('const reuseExistingServer =') &&
     playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER == null') &&
-    playwrightConfig.includes("? false") &&
+    playwrightConfig.includes("? true") &&
     playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"') &&
     playwrightConfig.includes("command: webServerCommand") &&
     playwrightConfig.includes("url: baseURL") &&

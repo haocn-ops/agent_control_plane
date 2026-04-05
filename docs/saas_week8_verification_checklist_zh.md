@@ -53,6 +53,9 @@
 - `cd web && node --import tsx --test tests/page-level/session-access-checkpoint.page.test.ts tests/page-level/launchpad-session-guidance.page.test.ts tests/page-level/settings-self-serve-lane.page.test.ts`
 - `cd web && node --import tsx --test app/api/control-plane/invitations/accept/__tests__/route.test.ts tests/route-wrapper-consistency.test.ts`
 - `npm run web:test:browser:smoke`
+- `npm run web:test:browser:smoke:stable`
+- `npm run web:test:browser:smoke:dev`
+- `npm run web:test:browser:spike`
 
 目前 browser smoke suite 已真實覆蓋多條最小鏈路：
 

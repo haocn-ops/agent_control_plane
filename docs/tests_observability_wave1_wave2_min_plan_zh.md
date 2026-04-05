@@ -191,3 +191,6 @@
 - `npm run web:test:page`
 - `npm run web:test:e2e`
 - `npm run web:test:browser:smoke`
+- `npm run web:test:browser:smoke:stable`
+- `npm run web:test:browser:smoke:dev`
+- `npm run web:test:browser:spike`

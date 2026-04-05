@@ -34,7 +34,7 @@ test("browser-e2e spike probe keeps executable readiness report aligned with cur
   assert.match(playwrightConfig, /const webServerTimeout = Number\(process\.env\.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS \?\? "240000"\)/);
   assert.match(playwrightConfig, /const reuseExistingServer =/);
   assert.match(playwrightConfig, /process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER == null/);
-  assert.match(playwrightConfig, /\?\s*false/);
+  assert.match(playwrightConfig, /\?\s*true/);
   assert.match(playwrightConfig, /process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"/);
   assert.match(playwrightConfig, /command:\s*webServerCommand/);
   assert.match(playwrightConfig, /url:\s*baseURL/);

@@ -111,6 +111,10 @@ npm run post-deploy:verify:readonly
 | `npm run tenant:handoff:update -- --bundle <file>` | Fold request/verify evidence back into a handoff-state JSON |
 | `npm run post-deploy:verify` | Write-mode remote verification for staging or dedicated verify tenants |
 | `npm run post-deploy:verify:readonly` | Readonly remote verification for production or shared tenants |
+| `npm run web:test:browser:smoke` | Run the default browser smoke suite on the production-backed local server |
+| `npm run web:test:browser:smoke:stable` | Run the same browser smoke suite with explicit stable-server settings |
+| `npm run web:test:browser:smoke:dev` | Run the browser smoke suite against a local Next dev server for quicker iteration |
+| `npm run web:test:browser:spike` | Print the browser harness readiness report and boundary summary |
 | `npm run deploy` | Real Wrangler deploy |
 | `npm run dev` | Local Wrangler dev server |
 

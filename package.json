@@ -30,6 +30,9 @@
     "web:test:page": "npm --prefix web run test:page",
     "web:test:e2e": "npm --prefix web run test:e2e",
     "web:test:browser:smoke": "npm --prefix web run test:browser:smoke",
+    "web:test:browser:smoke:stable": "npm --prefix web run test:browser:smoke:stable",
+    "web:test:browser:smoke:dev": "npm --prefix web run test:browser:smoke:dev",
+    "web:test:browser:spike": "npm --prefix web run test:browser:spike",
     "types": "wrangler types"
   },
   "devDependencies": {
