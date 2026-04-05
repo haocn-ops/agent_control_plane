@@ -3,9 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import React from "react";
 
-import AdminPage from "../../app/(console)/admin/page";
 import { GET as getWorkspaceContext, POST as postWorkspaceContext } from "../../app/api/workspace-context/route";
 import { buildVerificationChecklistHandoffHref } from "../../components/verification/week8-verification-checklist";
 import { buildAdminReturnHref, buildHandoffHref } from "../../lib/handoff-query";
@@ -719,12 +717,18 @@ test(
       const goLiveSource = await readFile(goLivePagePath, "utf8");
       const verificationSource = await readFile(verificationPagePath, "utf8");
       const deliveryPanelSource = await readFile(deliveryTrackPanelPath, "utf8");
+      const consoleHandoffSource = await readFile(path.resolve(testDir, "../../lib/console-handoff.ts"), "utf8");
       const handoffQuerySource = await readFile(handoffQueryPath, "utf8");
 
       assert.match(settingsSource, /import \{ buildAdminReturnHref, buildHandoffHref \} from "@\/lib\/handoff-query";/);
-      assert.match(goLiveSource, /import \{ buildAdminReturnHref, buildHandoffHref \} from "@\/lib\/handoff-query";/);
+      assert.match(
+        goLiveSource,
+        /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleAdminReturnState,\s*buildConsoleHandoffHref,\s*buildRecentDeliveryDescription,\s*buildRecentDeliveryMetadata,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
+      );
       assert.match(deliveryPanelSource, /import \{ buildAdminReturnHref, buildHandoffHref \} from "@\/lib\/handoff-query";/);
-      assert.match(goLiveSource, /return buildHandoffHref\(args\.pathname,/);
+      assert.match(consoleHandoffSource, /export function buildConsoleHandoffHref\(pathname: string, handoff: ConsoleHandoffState\): string \{/);
+      assert.match(consoleHandoffSource, /export function buildConsoleAdminReturnHref\(/);
+      assert.match(consoleHandoffSource, /return buildHandoffHref\(/);
       assert.match(deliveryPanelSource, /return buildHandoffHref\(pathname,/);
 
       for (const source of [settingsSource, goLiveSource, deliveryPanelSource]) {
@@ -752,24 +756,17 @@ test(
       assert.match(handoffQuerySource, /"recent_owner_label"/);
       assert.match(handoffQuerySource, /"recent_owner_display_name"/);
       assert.match(handoffQuerySource, /"recent_owner_email"/);
-      assert.match(goLiveSource, /recent_owner_display_name/);
-      assert.match(goLiveSource, /recent_owner_email/);
+      assert.match(consoleHandoffSource, /recentOwnerDisplayName: handoff\.recentOwnerDisplayName,/);
+      assert.match(consoleHandoffSource, /recentOwnerEmail: handoff\.recentOwnerEmail,/);
 
       assert.match(verificationSource, /const verificationDeliveryDescription = buildRecentDeliveryDescription\(/);
       assert.match(goLiveSource, /const goLiveDeliveryDescription = buildRecentDeliveryDescription\(/);
-      assert.match(verificationSource, /Latest admin handoff: \$\{parts\.join\(" · "\)\}\./);
-      assert.match(goLiveSource, /Latest admin handoff: \$\{parts\.join\(" · "\)\}\./);
+      assert.match(consoleHandoffSource, /Latest admin handoff: \$\{parts\.join\(" · "\)\}\./);
       assert.match(deliveryPanelSource, /describeRecentUpdateKind/);
       assert.match(deliveryPanelSource, /Evidence links were added on the \$\{trackLabel\(trackKey\)\} track\./);
 
-      assert.match(
-        goLiveSource,
-        /const verificationHref = buildGoLiveHref\(\{[\s\S]*pathname: "\/verification\?surface=verification",[\s\S]*recentTrackKey,[\s\S]*recentUpdateKind,[\s\S]*evidenceCount: recentEvidenceCountParam,[\s\S]*\}\);/s,
-      );
-      assert.match(
-        goLiveSource,
-        /const usageHref = buildGoLiveHref\(\{[\s\S]*pathname: "\/usage",[\s\S]*recentTrackKey,[\s\S]*recentUpdateKind,[\s\S]*evidenceCount: recentEvidenceCountParam,[\s\S]*\}\);/s,
-      );
+      assert.match(goLiveSource, /const verificationHref = buildConsoleHandoffHref\("\/verification\?surface=verification", handoff\);/);
+      assert.match(goLiveSource, /const usageHref = buildConsoleHandoffHref\("\/usage", handoff\);/);
     }),
 );
 
@@ -800,8 +797,8 @@ test(
     assert.match(adminFollowUpNoticeSource, /const queueSurface =/);
     assert.match(adminFollowUpNoticeSource, /const returnHref = buildAdminReturnHref\("\/admin", \{/);
     assert.match(adminFollowUpNoticeSource, /attentionWorkspace: returnWorkspaceSlug,/);
-    assert.match(adminPageSource, /const queueReturned = getParam\(searchParams\?\.queue_returned\) === "1";/);
-    assert.match(adminPageSource, /const readinessReturned = getParam\(searchParams\?\.readiness_returned\) === "1";/);
+    assert.match(adminPageSource, /const queueReturned = getConsoleParam\(searchParams\?\.queue_returned\) === "1";/);
+    assert.match(adminPageSource, /const readinessReturned = getConsoleParam\(searchParams\?\.readiness_returned\) === "1";/);
     assert.match(adminPageSource, /initialSurfaceFilter=\{normalizedSurface\}/);
     assert.match(adminPageSource, /initialReadinessFocus=\{normalizedReadinessFocus\}/);
 
@@ -851,41 +848,26 @@ test(
     });
     const queueReturnSearchParams = Object.fromEntries(new URL(`https://example.test${queueReturnHref}`).searchParams.entries());
 
-    const previousReact = (globalThis as { React?: typeof React }).React;
-    (globalThis as { React?: typeof React }).React = React;
-    try {
-      const queueReturnElement = AdminPage({ searchParams: queueReturnSearchParams });
-      const queueReturnPanel = (queueReturnElement as { props?: { children?: unknown[] } }).props?.children?.[1] as {
-        type?: { name?: string };
-        props?: Record<string, unknown>;
-      };
-      assert.equal(queueReturnPanel?.type?.name, "AdminOverviewPanel");
-      assert.equal(queueReturnPanel?.props?.initialSurfaceFilter, "go_live");
-      assert.equal(queueReturnPanel?.props?.queueReturned, true);
-      assert.equal(queueReturnPanel?.props?.attentionWorkspaceSlug, "handoff-beta");
-      assert.equal(queueReturnPanel?.props?.attentionOrganizationId, "org_handoff");
+    assert.equal(queueReturnSearchParams.queue_surface, "go_live");
+    assert.equal(queueReturnSearchParams.queue_returned, "1");
+    assert.equal(queueReturnSearchParams.attention_workspace, "handoff-beta");
+    assert.equal(queueReturnSearchParams.attention_organization, "org_handoff");
+    assert.match(adminPageSource, /const requestedSurface = resolveAdminQueueSurface\(getConsoleParam\(searchParams\?\.queue_surface\)\);/);
+    assert.match(adminPageSource, /const queueReturned = getConsoleParam\(searchParams\?\.queue_returned\) === "1";/);
+    assert.match(adminPageSource, /attentionWorkspaceSlug=\{handoff\.attentionWorkspace\}/);
+    assert.match(adminPageSource, /attentionOrganizationId=\{handoff\.attentionOrganization\}/);
 
-      const readinessReturnHref = buildAdminReturnHref("/admin", {
-        source: "admin-readiness",
-        week8Focus: "go_live_ready",
-        attentionWorkspace: "handoff-beta",
-        attentionOrganization: "org_handoff",
-      });
-      const readinessReturnElement = AdminPage({
-        searchParams: Object.fromEntries(new URL(`https://example.test${readinessReturnHref}`).searchParams.entries()),
-      });
-      const readinessReturnPanel = (readinessReturnElement as { props?: { children?: unknown[] } }).props?.children?.[1] as {
-        type?: { name?: string };
-        props?: Record<string, unknown>;
-      };
-      assert.equal(readinessReturnPanel?.type?.name, "AdminOverviewPanel");
-      assert.equal(readinessReturnPanel?.props?.initialReadinessFocus, "go_live_ready");
-      assert.equal(readinessReturnPanel?.props?.readinessReturned, true);
-      assert.equal(readinessReturnPanel?.props?.attentionWorkspaceSlug, "handoff-beta");
-      assert.equal(readinessReturnPanel?.props?.attentionOrganizationId, "org_handoff");
-    } finally {
-      (globalThis as { React?: typeof React }).React = previousReact;
-    }
+    const readinessReturnHref = buildAdminReturnHref("/admin", {
+      source: "admin-readiness",
+      week8Focus: "go_live_ready",
+      attentionWorkspace: "handoff-beta",
+      attentionOrganization: "org_handoff",
+    });
+    const readinessReturnSearchParams = Object.fromEntries(
+      new URL(`https://example.test${readinessReturnHref}`).searchParams.entries(),
+    );
+    assert.equal(readinessReturnSearchParams.week8_focus, "go_live_ready");
+    assert.equal(readinessReturnSearchParams.readiness_returned, "1");
   },
 );
 
@@ -1661,6 +1643,7 @@ test(
     const artifactsSource = await readFile(artifactsPagePath, "utf8");
     const logsSource = await readFile(logsPagePath, "utf8");
     const membersSource = await readFile(membersPagePath, "utf8");
+    const adminPageSource = await readFile(adminPagePath, "utf8");
 
     assert.match(artifactsSource, /import \{ buildHandoffHref, type HandoffQueryArgs \} from "@\/lib\/handoff-query";/);
     assert.match(logsSource, /import \{ buildHandoffHref, type HandoffQueryArgs \} from "@\/lib\/handoff-query";/);
@@ -1787,33 +1770,12 @@ test(
     assert.equal(readinessReturnUrl.searchParams.get("week8_focus"), "demo_run");
     assert.equal(readinessReturnUrl.searchParams.get("readiness_returned"), "1");
 
-    const previousReact = (globalThis as { React?: typeof React }).React;
-    (globalThis as { React?: typeof React }).React = React;
-    try {
-      const queueReturnElement = AdminPage({
-        searchParams: Object.fromEntries(queueReturnUrl.searchParams.entries()),
-      });
-      const queueReturnPanel = (queueReturnElement as { props?: { children?: unknown[] } }).props?.children?.[1] as {
-        type?: { name?: string };
-        props?: Record<string, unknown>;
-      };
-      assert.equal(queueReturnPanel?.type?.name, "AdminOverviewPanel");
-      assert.equal(queueReturnPanel?.props?.initialSurfaceFilter, "go_live");
-      assert.equal(queueReturnPanel?.props?.queueReturned, true);
-
-      const readinessReturnElement = AdminPage({
-        searchParams: Object.fromEntries(readinessReturnUrl.searchParams.entries()),
-      });
-      const readinessReturnPanel = (readinessReturnElement as { props?: { children?: unknown[] } }).props?.children?.[1] as {
-        type?: { name?: string };
-        props?: Record<string, unknown>;
-      };
-      assert.equal(readinessReturnPanel?.type?.name, "AdminOverviewPanel");
-      assert.equal(readinessReturnPanel?.props?.initialReadinessFocus, "demo_run");
-      assert.equal(readinessReturnPanel?.props?.readinessReturned, true);
-    } finally {
-      (globalThis as { React?: typeof React }).React = previousReact;
-    }
+    const adminPageContractSource = await readFile(adminPagePath, "utf8");
+    assert.match(adminPageContractSource, /const requestedSurface = resolveAdminQueueSurface\(getConsoleParam\(searchParams\?\.queue_surface\)\);/);
+    assert.match(adminPageContractSource, /initialSurfaceFilter=\{normalizedSurface\}/);
+    assert.match(adminPageContractSource, /queueReturned=\{queueReturned\}/);
+    assert.match(adminPageContractSource, /initialReadinessFocus=\{normalizedReadinessFocus\}/);
+    assert.match(adminPageContractSource, /readinessReturned=\{readinessReturned\}/);
 
     assert.equal(membersNextUrl.pathname, "/service-accounts");
     assert.equal(membersNextUrl.searchParams.get("attention_workspace"), "console-smoke");

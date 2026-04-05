@@ -1,10 +1,11 @@
 import Link from "next/link";
 
 import { AdminFollowUpNotice } from "@/components/admin/admin-follow-up-notice";
+import { WorkspaceContextSurfaceNotice } from "@/components/console/workspace-context-surface-notice";
 import { WorkspaceSettingsPanel } from "@/components/settings/workspace-settings-panel";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildHandoffHref } from "@/lib/handoff-query";
+import { buildConsoleHandoffHref, parseConsoleHandoffState } from "@/lib/console-handoff";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 type SettingsIntent = "upgrade" | "manage-plan" | "resolve-billing" | null;
@@ -17,65 +18,41 @@ function normalizeIntent(value: string | string[] | undefined): SettingsIntent {
   return null;
 }
 
-function getParam(value?: string | string[] | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  return Array.isArray(value) ? value[0] : value;
-}
-
 export default async function SettingsPage({
   searchParams,
 }: {
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const workspaceContext = await resolveWorkspaceContextForServer();
+  const handoff = parseConsoleHandoffState(searchParams);
   const highlightIntent = normalizeIntent(searchParams?.intent);
   const initialCheckoutSessionId = Array.isArray(searchParams?.checkout_session_id)
     ? searchParams?.checkout_session_id[0] ?? null
     : searchParams?.checkout_session_id ?? null;
-  const handoffSource = getParam(searchParams?.source);
-  const handoffWorkspace = getParam(searchParams?.attention_workspace);
-  const handoffOrganization = getParam(searchParams?.attention_organization);
-  const week8Focus = getParam(searchParams?.week8_focus);
-  const deliveryContext = getParam(searchParams?.delivery_context);
-  const recentTrackKey = getParam(searchParams?.recent_track_key);
-  const recentUpdateKind = getParam(searchParams?.recent_update_kind);
-  const evidenceCountParam = getParam(searchParams?.evidence_count);
-  const evidenceCount =
-    evidenceCountParam !== null && !Number.isNaN(Number(evidenceCountParam)) ? Number(evidenceCountParam) : null;
-  const ownerLabel =
-    getParam(searchParams?.recent_owner_label) ?? getParam(searchParams?.recent_owner_display_name);
-  const showReadinessHandoff = handoffSource === "admin-readiness";
-  const showAttentionHandoff = handoffSource === "admin-attention";
-  const handoffArgs = {
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount,
-    recentOwnerLabel: ownerLabel,
-  };
-  const buildSettingsPageHref = (pathname: string) =>
-    buildHandoffHref(pathname, handoffArgs, { preserveExistingQuery: true });
+  const showReadinessHandoff = handoff.source === "admin-readiness";
+  const showAttentionHandoff = handoff.source === "admin-attention";
+  const buildSettingsPageHref = (pathname: string) => buildConsoleHandoffHref(pathname, handoff);
 
   return (
     <div className="space-y-8">
+      <WorkspaceContextSurfaceNotice
+        workspaceSlug={workspaceContext.workspace.slug}
+        sourceDetail={workspaceContext.source_detail}
+        surfaceLabel="Settings"
+        sessionHref={buildSettingsPageHref("/session")}
+      />
       {showAttentionHandoff ? (
         <AdminFollowUpNotice
           source="admin-attention"
           surface="settings"
           workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoffWorkspace}
-          attentionOrganization={handoffOrganization}
-          deliveryContext={deliveryContext}
-          recentTrackKey={recentTrackKey}
-          recentUpdateKind={recentUpdateKind}
-          evidenceCount={evidenceCount}
-          ownerDisplayName={ownerLabel}
+          sourceWorkspaceSlug={handoff.attentionWorkspace}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
+          recentTrackKey={handoff.recentTrackKey}
+          recentUpdateKind={handoff.recentUpdateKind}
+          evidenceCount={handoff.evidenceCount}
+          ownerDisplayName={handoff.recentOwnerLabel}
         />
       ) : null}
       {showReadinessHandoff ? (
@@ -83,14 +60,14 @@ export default async function SettingsPage({
           source="admin-readiness"
           surface="settings"
           workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoffWorkspace}
-          week8Focus={week8Focus}
-          attentionOrganization={handoffOrganization}
-          deliveryContext={deliveryContext}
-          recentTrackKey={recentTrackKey}
-          recentUpdateKind={recentUpdateKind}
-          evidenceCount={evidenceCount}
-          ownerDisplayName={ownerLabel}
+          sourceWorkspaceSlug={handoff.attentionWorkspace}
+          week8Focus={handoff.week8Focus}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
+          recentTrackKey={handoff.recentTrackKey}
+          recentUpdateKind={handoff.recentUpdateKind}
+          evidenceCount={handoff.evidenceCount}
+          ownerDisplayName={handoff.recentOwnerLabel}
         />
       ) : null}
       <PageHeader
@@ -146,15 +123,15 @@ export default async function SettingsPage({
         workspaceSlug={workspaceContext.workspace.slug}
         highlightIntent={highlightIntent}
         initialCheckoutSessionId={initialCheckoutSessionId}
-        source={handoffSource}
-        week8Focus={week8Focus}
-        attentionWorkspace={handoffWorkspace}
-        attentionOrganization={handoffOrganization}
-        deliveryContext={deliveryContext}
-        recentTrackKey={recentTrackKey}
-        recentUpdateKind={recentUpdateKind}
-        evidenceCount={evidenceCount}
-        recentOwnerLabel={ownerLabel}
+        source={handoff.source}
+        week8Focus={handoff.week8Focus}
+        attentionWorkspace={handoff.attentionWorkspace}
+        attentionOrganization={handoff.attentionOrganization}
+        deliveryContext={handoff.deliveryContext}
+        recentTrackKey={handoff.recentTrackKey}
+        recentUpdateKind={handoff.recentUpdateKind}
+        evidenceCount={handoff.evidenceCount}
+        recentOwnerLabel={handoff.recentOwnerLabel}
       />
 
       <Card>

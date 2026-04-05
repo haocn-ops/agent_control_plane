@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const usageDashboardPath = path.resolve(testDir, "../../components/usage/workspace-usage-dashboard.tsx");
 const onboardingWizardPath = path.resolve(testDir, "../../components/onboarding/workspace-onboarding-wizard.tsx");
+const workspaceContextCalloutPath = path.resolve(testDir, "../../components/workspace-context-callout.tsx");
 
 async function readSource(filePath: string): Promise<string> {
   return readFile(filePath, "utf8");
@@ -37,4 +38,19 @@ test("onboarding wizard keeps persisted bootstrap summary and current-period usa
   assert.match(source, /Open usage checkpoint/);
   assert.match(source, /Open settings billing lane/);
   assert.match(source, /Capture verification evidence before widening rollout, and keep rollback ownership, settings review,/);
+});
+
+test("workspace context callout documents usage and go-live usage surfaces", async () => {
+  const source = await readSource(workspaceContextCalloutPath);
+
+  assert.match(source, /if \(surface === "usage"\) \{/);
+  assert.match(
+    source,
+    /Confirm workspace identity before recording usage pressure, quota evidence, or plan-limit remediation cues\./,
+  );
+  assert.match(source, /return "Go-live context checkpoint";/);
+  assert.match(
+    source,
+    /Confirm workspace identity before running mock go-live drill notes and handing readiness status back to admin\./,
+  );
 });

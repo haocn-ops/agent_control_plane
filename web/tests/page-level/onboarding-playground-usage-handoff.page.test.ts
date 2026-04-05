@@ -20,7 +20,7 @@ test("Onboarding/playground/usage pages keep source + recent metadata query pars
     readSource(usagePagePath),
   ]);
 
-  for (const source of [onboardingSource, playgroundSource, usageSource]) {
+  for (const source of [onboardingSource, playgroundSource]) {
     assert.match(source, /const (?:handoffSource|source) = getParam\(searchParams\?\.source\);/);
     assert.match(source, /const handoffWorkspace = getParam\(searchParams\?\.attention_workspace\);/);
     assert.match(source, /const handoffOrganization = getParam\(searchParams\?\.attention_organization\);/);
@@ -38,6 +38,16 @@ test("Onboarding/playground/usage pages keep source + recent metadata query pars
       /const ownerLabel =\s*getParam\(searchParams\?\.recent_owner_label\) \?\? getParam\(searchParams\?\.recent_owner_display_name\);/s,
     );
   }
+
+  assert.match(
+    usageSource,
+    /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleHandoffHref,\s*buildConsoleVerificationChecklistHandoffArgs,\s*buildConsoleAdminReturnState,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
+  );
+  assert.match(usageSource, /const handoff = parseConsoleHandoffState\(searchParams\);/);
+  assert.match(usageSource, /const adminReturnState = buildConsoleAdminReturnState\(\{/);
+  assert.match(usageSource, /const handoffHrefArgs = buildConsoleVerificationChecklistHandoffArgs\(handoff\);/);
+  assert.match(usageSource, /const adminReturnHref = buildConsoleAdminReturnHref\(\{/);
+  assert.match(usageSource, /const sessionHref = buildConsoleHandoffHref\("\/session", handoff\);/);
 
   assert.match(onboardingSource, /const ownerEmail = getParam\(searchParams\?\.recent_owner_email\);/);
 });
@@ -59,8 +69,10 @@ test("Onboarding/playground/usage pages keep admin follow-up surface wiring alig
   assert.match(playgroundSource, /source="admin-attention"[\s\S]*surface="playground"/);
   assert.match(playgroundSource, /source="admin-readiness"[\s\S]*surface="playground"/);
 
-  assert.match(usageSource, /const showAttentionHandoff = source === "admin-attention";/);
-  assert.match(usageSource, /const showReadinessHandoff = source === "admin-readiness";/);
+  assert.match(usageSource, /adminReturnState\.showAttentionHandoff/);
+  assert.match(usageSource, /adminReturnState\.showReadinessHandoff/);
+  assert.match(usageSource, /\{adminReturnState\.showAttentionHandoff \? \(/);
+  assert.match(usageSource, /\{adminReturnState\.showReadinessHandoff \? \(/);
   assert.match(usageSource, /source="admin-attention"[\s\S]*surface="usage"/);
   assert.match(usageSource, /source="admin-readiness"[\s\S]*surface="usage"/);
 });
@@ -77,7 +89,7 @@ test("Playground and usage server pages source the checklist handoff helper from
   );
   assert.match(
     usageSource,
-    /import \{ buildAdminReturnHref, buildHandoffHref, buildVerificationChecklistHandoffHref \} from "@\/lib\/handoff-query";/,
+    /import \{ buildVerificationChecklistHandoffHref \} from "@\/lib\/handoff-query";/,
   );
 });
 
@@ -108,15 +120,16 @@ test("Onboarding/playground/usage pages keep component prop passthrough for hand
   assert.match(playgroundSource, /<PlaygroundPanel[\s\S]*evidenceCount=\{evidenceCount\}/);
   assert.match(playgroundSource, /<PlaygroundPanel[\s\S]*recentOwnerLabel=\{ownerLabel\}/);
 
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*source=\{source\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*week8Focus=\{week8Focus\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*attentionWorkspace=\{handoffWorkspace\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*attentionOrganization=\{handoffOrganization\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*deliveryContext=\{deliveryContext\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentTrackKey=\{recentTrackKey\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentUpdateKind=\{recentUpdateKind\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*evidenceCount=\{evidenceCount\}/);
-  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentOwnerLabel=\{ownerLabel\}/);
+  assert.match(usageSource, /<WorkspaceContextSurfaceNotice[\s\S]*surfaceLabel="Usage"/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*source=\{handoff\.source\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*week8Focus=\{handoff\.week8Focus\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*attentionWorkspace=\{handoff\.attentionWorkspace\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*attentionOrganization=\{handoff\.attentionOrganization\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*deliveryContext=\{handoff\.deliveryContext\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentTrackKey=\{handoff\.recentTrackKey\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentUpdateKind=\{handoff\.recentUpdateKind\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*evidenceCount=\{handoff\.evidenceCount\}/);
+  assert.match(usageSource, /<WorkspaceUsageDashboard[\s\S]*recentOwnerLabel=\{handoff\.recentOwnerLabel\}/);
 });
 
 test("Onboarding, playground, and usage pages expose manual checkpoint lanes with shared navigation wording", async () => {
@@ -138,8 +151,7 @@ test("Onboarding, playground, and usage pages expose manual checkpoint lanes wit
   assert.match(playgroundSource, /Review plan and billing lane/);
   assert.match(playgroundSource, /Capture verification evidence/);
 
-  assert.match(usageSource, /const showAdminReturn = showReadinessHandoff \|\| showAttentionHandoff;/);
-  assert.match(usageSource, /const adminReturnLabel = showAttentionHandoff \? "Return to admin queue" : "Return to admin readiness";/);
+  assert.match(usageSource, /const adminReturnState = buildConsoleAdminReturnState\(\{/);
   assert.match(usageSource, /Re-check session context/);
   assert.match(usageSource, /Return to onboarding summary/);
   assert.match(usageSource, /Review artifacts evidence/);

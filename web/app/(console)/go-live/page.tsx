@@ -1,139 +1,22 @@
 import Link from "next/link";
 
 import { AdminFollowUpNotice } from "@/components/admin/admin-follow-up-notice";
+import { WorkspaceContextSurfaceNotice } from "@/components/console/workspace-context-surface-notice";
+import { WorkspaceDeliveryTrackPanel } from "@/components/delivery/workspace-delivery-track-panel";
 import { MockGoLiveDrillPanel } from "@/components/go-live/mock-go-live-drill-panel";
 import { PageHeader } from "@/components/page-header";
-import { WorkspaceDeliveryTrackPanel } from "@/components/delivery/workspace-delivery-track-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildAdminReturnHref, buildHandoffHref } from "@/lib/handoff-query";
+import {
+  buildConsoleAdminReturnHref,
+  buildConsoleAdminReturnState,
+  buildConsoleHandoffHref,
+  buildRecentDeliveryDescription,
+  buildRecentDeliveryMetadata,
+  parseConsoleHandoffState,
+} from "@/lib/console-handoff";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 export const dynamic = "force-dynamic";
-
-function getParam(value?: string | string[] | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  return Array.isArray(value) ? value[0] : value;
-}
-
-type RecentDeliveryMetadata = {
-  recentTrackKey: string | null;
-  recentUpdateKind: string | null;
-  recentEvidenceCount: number | null;
-  recentOwnerLabel: string | null;
-};
-
-type RecentOwnerDetail = {
-  displayName: string | null;
-  email: string | null;
-};
-
-function parseRecentDeliveryMetadata(
-  searchParams?: Record<string, string | string[] | undefined>,
-): RecentDeliveryMetadata & RecentOwnerDetail {
-  const recentTrackKey = getParam(searchParams?.recent_track_key);
-  const recentUpdateKind = getParam(searchParams?.recent_update_kind);
-  const evidenceCountParam = getParam(searchParams?.evidence_count);
-  const ownerDisplayName =
-    getParam(searchParams?.recent_owner_display_name) ?? getParam(searchParams?.recent_owner_label);
-  const ownerEmail = getParam(searchParams?.recent_owner_email);
-  const evidenceCount =
-    evidenceCountParam !== null && !Number.isNaN(Number(evidenceCountParam))
-      ? Number(evidenceCountParam)
-      : null;
-
-  return {
-    recentTrackKey,
-    recentUpdateKind,
-    recentEvidenceCount: evidenceCount,
-    recentOwnerLabel: ownerDisplayName ?? ownerEmail,
-    displayName: ownerDisplayName,
-    email: ownerEmail,
-  };
-}
-
-function formatTrackLabel(trackKey?: string | null): string | null {
-  if (trackKey === "go_live") {
-    return "Go-live track";
-  }
-  if (trackKey === "verification") {
-    return "Verification track";
-  }
-  return null;
-}
-
-function describeUpdateKind(kind?: string | null): string | null {
-  switch (kind) {
-    case "verification":
-      return "Verification tracking refreshed";
-    case "go_live":
-      return "Go-live tracking refreshed";
-    case "verification_completed":
-      return "Verification completed";
-    case "go_live_completed":
-      return "Go-live completed";
-    case "evidence_only":
-      return "Evidence added";
-    default:
-      return kind ? kind.replaceAll("_", " ") : null;
-  }
-}
-
-function buildRecentDeliveryDescription(
-  base: string,
-  metadata: RecentDeliveryMetadata,
-): string {
-  const parts: string[] = [];
-  const trackLabel = formatTrackLabel(metadata.recentTrackKey);
-  if (trackLabel) {
-    parts.push(trackLabel);
-  }
-  const updateLabel = describeUpdateKind(metadata.recentUpdateKind);
-  if (updateLabel) {
-    parts.push(updateLabel);
-  }
-  if (metadata.recentEvidenceCount != null) {
-    parts.push(
-      `${metadata.recentEvidenceCount} evidence ${metadata.recentEvidenceCount === 1 ? "item" : "items"}`,
-    );
-  }
-  if (metadata.recentOwnerLabel) {
-    parts.push(`handled by ${metadata.recentOwnerLabel}`);
-  }
-
-  if (parts.length === 0) {
-    return base;
-  }
-  return `${base} Latest admin handoff: ${parts.join(" · ")}.`;
-}
-
-function buildGoLiveHref(args: {
-  pathname: string;
-  source: string | null;
-  week8Focus: string | null;
-  attentionWorkspace?: string | null;
-  attentionOrganization?: string | null;
-  deliveryContext?: string | null;
-  recentTrackKey?: string | null;
-  recentUpdateKind?: string | null;
-  evidenceCount?: string | null;
-  recentOwnerDisplayName?: string | null;
-  recentOwnerEmail?: string | null;
-}): string {
-  return buildHandoffHref(args.pathname, {
-    source: args.source,
-    week8Focus: args.week8Focus,
-    attentionWorkspace: args.attentionWorkspace,
-    attentionOrganization: args.attentionOrganization,
-    deliveryContext: args.deliveryContext,
-    recentTrackKey: args.recentTrackKey,
-    recentUpdateKind: args.recentUpdateKind,
-    evidenceCount: args.evidenceCount,
-    recentOwnerDisplayName: args.recentOwnerDisplayName,
-    recentOwnerEmail: args.recentOwnerEmail,
-  }, { preserveExistingQuery: true });
-}
 
 export default async function GoLivePage({
   searchParams,
@@ -141,132 +24,53 @@ export default async function GoLivePage({
   searchParams?: Record<string, string | string[] | undefined>;
 }) {
   const workspaceContext = await resolveWorkspaceContextForServer();
-  const handoffSource = getParam(searchParams?.source);
-  const handoffSurface = getParam(searchParams?.surface);
-  const handoffWorkspace = getParam(searchParams?.attention_workspace);
-  const handoffOrganization = getParam(searchParams?.attention_organization);
-  const week8Focus = getParam(searchParams?.week8_focus);
-  const deliveryContext = getParam(searchParams?.delivery_context);
-  const goLiveMetadata = parseRecentDeliveryMetadata(searchParams);
+  const handoff = parseConsoleHandoffState(searchParams);
+  const goLiveMetadata = buildRecentDeliveryMetadata(handoff);
   const recentTrackKey = goLiveMetadata.recentTrackKey;
   const recentUpdateKind = goLiveMetadata.recentUpdateKind;
   const recentEvidenceCount = goLiveMetadata.recentEvidenceCount;
-  const recentOwnerDisplayName = goLiveMetadata.displayName;
-  const recentOwnerEmail = goLiveMetadata.email;
-  const recentEvidenceCountParam =
-    recentEvidenceCount != null ? String(recentEvidenceCount) : null;
-  const showAttentionHandoff = handoffSource === "admin-attention" && handoffSurface === "go_live";
-  const showReadinessHandoff = handoffSource === "admin-readiness";
-  const showAdminReturn = showAttentionHandoff || showReadinessHandoff;
-  const adminReturnLabel = showAttentionHandoff ? "Return to admin queue" : "Return to admin readiness view";
-  const adminQueueSurface =
-    handoffSurface === "verification" || handoffSurface === "go_live"
-      ? handoffSurface
-      : recentTrackKey === "verification" || recentTrackKey === "go_live"
-        ? recentTrackKey
-        : null;
-  const goLiveDeliveryBase =
-    "Track go-live drill status, experiments, and evidence references for this workspace.";
-  const goLiveDeliveryDescription = buildRecentDeliveryDescription(goLiveDeliveryBase, goLiveMetadata);
-  const verificationHref = buildGoLiveHref({
-    pathname: "/verification?surface=verification",
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount: recentEvidenceCountParam,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
+  const recentOwnerDisplayName = handoff.recentOwnerDisplayName;
+  const recentOwnerEmail = handoff.recentOwnerEmail;
+  const adminReturnState = buildConsoleAdminReturnState({
+    source: handoff.source,
+    surface: handoff.surface,
+    expectedSurface: "go_live",
+    recentTrackKey: handoff.recentTrackKey,
   });
-  const usageHref = buildGoLiveHref({
-    pathname: "/usage",
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount: recentEvidenceCountParam,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
+  const goLiveDeliveryDescription = buildRecentDeliveryDescription(
+    "Track go-live drill status, experiments, and evidence references for this workspace.",
+    goLiveMetadata,
+  );
+  const verificationHref = buildConsoleHandoffHref("/verification?surface=verification", handoff);
+  const usageHref = buildConsoleHandoffHref("/usage", handoff);
+  const settingsHref = buildConsoleHandoffHref("/settings", handoff);
+  const playgroundHref = buildConsoleHandoffHref("/playground", handoff);
+  const artifactsHref = buildConsoleHandoffHref("/artifacts", handoff);
+  const adminReturnHref = buildConsoleAdminReturnHref({
+    pathname: "/admin",
+    handoff,
+    workspaceSlug: workspaceContext.workspace.slug,
+    queueSurface: adminReturnState.adminQueueSurface,
   });
-  const settingsHref = buildGoLiveHref({
-    pathname: "/settings",
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount: recentEvidenceCountParam,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
-  });
-  const playgroundHref = buildGoLiveHref({
-    pathname: "/playground",
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount: recentEvidenceCountParam,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
-  });
-  const artifactsHref = buildGoLiveHref({
-    pathname: "/artifacts",
-    source: handoffSource,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace,
-    attentionOrganization: handoffOrganization,
-    deliveryContext,
-    recentTrackKey,
-    recentUpdateKind,
-    evidenceCount: recentEvidenceCountParam,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
-  });
-  const adminReturnHref = buildAdminReturnHref("/admin", {
-    source:
-      handoffSource === "admin-attention" || handoffSource === "admin-readiness" ? handoffSource : null,
-    queueSurface: adminQueueSurface,
-    week8Focus,
-    attentionWorkspace: handoffWorkspace ?? workspaceContext.workspace.slug,
-    attentionOrganization: handoffOrganization,
-    deliveryContext: deliveryContext === "recent_activity" ? deliveryContext : null,
-    recentUpdateKind:
-      recentUpdateKind === "verification" ||
-      recentUpdateKind === "go_live" ||
-      recentUpdateKind === "verification_completed" ||
-      recentUpdateKind === "go_live_completed" ||
-      recentUpdateKind === "evidence_only"
-        ? recentUpdateKind
-        : null,
-    evidenceCount: recentEvidenceCount,
-    recentOwnerLabel: recentOwnerDisplayName ?? recentOwnerEmail,
-    recentOwnerDisplayName,
-    recentOwnerEmail,
-  });
-  const adminHref = showAdminReturn ? adminReturnHref : "/admin";
-  const adminLinkLabel = showAdminReturn ? adminReturnLabel : "Admin overview";
+  const adminHref = adminReturnState.showAdminReturn ? adminReturnHref : "/admin";
+  const adminLinkLabel = adminReturnState.showAdminReturn ? adminReturnState.adminReturnLabel : "Admin overview";
 
   return (
     <div className="space-y-8">
-      {showAttentionHandoff ? (
+      <WorkspaceContextSurfaceNotice
+        workspaceSlug={workspaceContext.workspace.slug}
+        sourceDetail={workspaceContext.source_detail}
+        surfaceLabel="Go-live drill"
+        sessionHref={buildConsoleHandoffHref("/session", handoff)}
+      />
+      {adminReturnState.showAttentionHandoff ? (
         <AdminFollowUpNotice
           source="admin-attention"
           surface="go_live"
           workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoffWorkspace}
-          attentionOrganization={handoffOrganization}
-          deliveryContext={deliveryContext}
+          sourceWorkspaceSlug={handoff.attentionWorkspace}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
           recentTrackKey={recentTrackKey}
           recentUpdateKind={recentUpdateKind}
           evidenceCount={recentEvidenceCount}
@@ -274,21 +78,21 @@ export default async function GoLivePage({
           ownerEmail={recentOwnerEmail}
         />
       ) : null}
-      {showReadinessHandoff ? (
+      {adminReturnState.showReadinessHandoff ? (
         <AdminFollowUpNotice
           source="admin-readiness"
           surface="go_live"
           workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoffWorkspace}
-          week8Focus={week8Focus}
-          attentionOrganization={handoffOrganization}
-          deliveryContext={deliveryContext}
+          sourceWorkspaceSlug={handoff.attentionWorkspace}
+          week8Focus={handoff.week8Focus}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
           recentTrackKey={recentTrackKey}
           recentUpdateKind={recentUpdateKind}
           evidenceCount={recentEvidenceCount}
           ownerDisplayName={recentOwnerDisplayName}
           ownerEmail={recentOwnerEmail}
-      />
+        />
       ) : null}
       <PageHeader
         eyebrow="Go-live"
@@ -340,12 +144,12 @@ export default async function GoLivePage({
             >
               Inspect artifacts evidence
             </Link>
-            {showAdminReturn ? (
+            {adminReturnState.showAdminReturn ? (
               <Link
                 href={adminReturnHref}
                 className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
               >
-                {adminReturnLabel}
+                {adminReturnState.adminReturnLabel}
               </Link>
             ) : null}
           </div>
@@ -358,31 +162,21 @@ export default async function GoLivePage({
         <CardContent className="space-y-3 text-sm text-muted">
           <p>
             Use this drill surface once the verification checklist, billing posture, and usage pressure have been
-            reviewed. Keep the same workspace context, capture evidence in
-            <Link
-              href={verificationHref}
-            >
-              Verification
-            </Link>
-            , collect the usage trace via{" "}
-            <Link
-              href={usageHref}
-            >
-              Usage
-            </Link>
-            , inspect the concrete bundle in <Link href={artifactsHref}>Artifacts</Link>, and record the experiment
-            notes in the delivery tracker here before ending the loop in <Link href={adminHref}>{adminLinkLabel}</Link>.
-            These links only steer the navigation; they do not impersonate the admin or automate any step.
+            reviewed. Keep the same workspace context, capture evidence in{" "}
+            <Link href={verificationHref}>Verification</Link>, collect the usage trace via <Link href={usageHref}>Usage</Link>, inspect the concrete bundle in{" "}
+            <Link href={artifactsHref}>Artifacts</Link>, and record the experiment notes in the delivery tracker here
+            before ending the loop in <Link href={adminHref}>{adminLinkLabel}</Link>. These links only steer the
+            navigation; they do not impersonate the admin or automate any step.
           </p>
         </CardContent>
       </Card>
       <MockGoLiveDrillPanel
         workspaceSlug={workspaceContext.workspace.slug}
-        source={handoffSource}
-        week8Focus={week8Focus}
-        attentionWorkspace={handoffWorkspace}
-        attentionOrganization={handoffOrganization}
-        deliveryContext={deliveryContext}
+        source={handoff.source}
+        week8Focus={handoff.week8Focus}
+        attentionWorkspace={handoff.attentionWorkspace}
+        attentionOrganization={handoff.attentionOrganization}
+        deliveryContext={handoff.deliveryContext}
         recentTrackKey={recentTrackKey}
         recentUpdateKind={recentUpdateKind}
         evidenceCount={recentEvidenceCount}
@@ -393,12 +187,12 @@ export default async function GoLivePage({
         sectionKey="go_live"
         title="Go-live delivery notes"
         description={goLiveDeliveryDescription}
-        source={handoffSource}
+        source={handoff.source}
         surface="go_live"
-        week8Focus={week8Focus}
-        attentionWorkspace={handoffWorkspace}
-        attentionOrganization={handoffOrganization}
-        deliveryContext={deliveryContext}
+        week8Focus={handoff.week8Focus}
+        attentionWorkspace={handoff.attentionWorkspace}
+        attentionOrganization={handoff.attentionOrganization}
+        deliveryContext={handoff.deliveryContext}
         recentTrackKey={recentTrackKey}
         recentUpdateKind={recentUpdateKind}
         evidenceCount={recentEvidenceCount}

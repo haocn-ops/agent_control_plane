@@ -8,6 +8,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const topbarPath = path.resolve(testDir, "../../components/topbar.tsx");
 const membersPanelPath = path.resolve(testDir, "../../components/members/members-panel.tsx");
 const settingsPanelPath = path.resolve(testDir, "../../components/settings/workspace-settings-panel.tsx");
+const workspaceContextCalloutPath = path.resolve(testDir, "../../components/workspace-context-callout.tsx");
 
 async function readSource(filePath: string): Promise<string> {
   return readFile(filePath, "utf8");
@@ -36,6 +37,24 @@ test("workspace context route shares warning header when fallback warns", async 
   assert.match(source, /response\.headers\.set\("x-govrail-workspace-context-warning",/);
   assert.match(source, /request\.headers\.get\("x-authenticated-subject"\)\s*\?\?\s*request\.headers\.get\("cf-access-authenticated-user-email"\)/s);
   assert.doesNotMatch(source, /x-subject-id/);
+});
+
+test("workspace context callout keeps reusable source/fallback/session guardrails contract", async () => {
+  const source = await readSource(workspaceContextCalloutPath);
+
+  assert.match(
+    source,
+    /export const WORKSPACE_CONTEXT_CALLOUT_SURFACES = \["settings", "usage", "verification", "go-live"\] as const;/,
+  );
+  assert.match(source, /export function WorkspaceContextCallout\(/);
+  assert.match(source, /variant=\{sourceDetail\.is_fallback \? "default" : "subtle"\}/);
+  assert.match(source, /context: \{sourceDetail\.label\}/);
+  assert.match(source, /sourceDetail\.warning \? <Badge variant="default">fallback warning<\/Badge> : null/);
+  assert.match(source, /sourceDetail\.local_only \? <Badge variant="default">local-only context<\/Badge> : null/);
+  assert.match(source, /Live metadata is unavailable\./);
+  assert.match(source, /<code className="font-mono">\/session<\/code>/);
+  assert.match(source, /href=\{sessionHref\}/);
+  assert.match(source, /Review workspace context on \/session/);
 });
 
 test("Members panel keeps metadata-guard fallback messaging and no-members live-only semantics", async () => {

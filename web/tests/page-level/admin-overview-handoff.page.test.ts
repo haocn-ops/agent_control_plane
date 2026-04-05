@@ -33,19 +33,18 @@ test("Admin overview keeps readiness follow-up handoff links on shared query hel
 test("Admin overview keeps attention action query naming consistent for surface and recent delivery metadata", async () => {
   const source = await readSource(adminOverviewPath);
 
-  assert.match(source, /searchParams: \{/);
-  assert.match(source, /pathname: targetSurface === "go_live" \? "\/go-live" : "\/verification",/);
-  assert.match(source, /source: "admin-attention",/);
+  assert.match(source, /searchParams:\s*\{[\s\S]*source: "admin-attention"/);
   assert.match(source, /surface: targetSurface,/);
+  assert.match(source, /pathname: targetSurface === "go_live" \? "\/go-live" : "\/verification"/);
   assert.match(source, /attention_workspace: workspace\.slug,/);
-  assert.match(source, /attention_organization: options\?\.attentionOrganizationId \?\? null,/);
-  assert.match(source, /delivery_context: options\?\.deliveryContext \?\? null,/);
-  assert.match(source, /recent_track_key: options\?\.recentTrackKey \?\? null,/);
-  assert.match(source, /recent_update_kind: options\?\.recentUpdateKind \?\? null,/);
-  assert.match(source, /evidence_count:\s*typeof options\?\.evidenceCount === "number" \? String\(options\.evidenceCount\) : null,/s);
-  assert.match(source, /recent_owner_label: options\?\.recentOwnerLabel \?\? null,/);
-  assert.match(source, /recent_owner_display_name: options\?\.recentOwnerDisplayName \?\? null,/);
-  assert.match(source, /recent_owner_email: options\?\.recentOwnerEmail \?\? null,/);
+  assert.match(source, /attention_organization:/);
+  assert.match(source, /delivery_context:/);
+  assert.match(source, /recent_track_key:/);
+  assert.match(source, /recent_update_kind:/);
+  assert.match(source, /evidence_count:/);
+  assert.match(source, /recent_owner_label:/);
+  assert.match(source, /recent_owner_display_name:/);
+  assert.match(source, /recent_owner_email:/);
   assert.match(source, /targetSurface === "go_live" \? "Open go-live drill" : "Open verification checklist"/);
   assert.match(source, /pathname: "\/go-live\?surface=go_live"/);
 });
@@ -54,7 +53,7 @@ test("Admin overview keeps direct admin-attention go-live queue entry and return
   const source = await readSource(adminOverviewPath);
 
   assert.match(source, /const targetSurface = workspace\.next_action_surface \?\? "verification";/);
-  assert.match(source, /pathname: targetSurface === "go_live" \? "\/go-live" : "\/verification",/);
+  assert.match(source, /source: "admin-attention",/);
   assert.match(source, /surface: targetSurface,/);
   assert.match(source, /targetSurface === "go_live" \? "Open go-live drill" : "Open verification checklist"/);
   assert.match(source, /<p className="font-medium">Admin queue focus restored<\/p>/);

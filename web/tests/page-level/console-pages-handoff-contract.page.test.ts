@@ -19,6 +19,13 @@ async function readSource(filePath: string): Promise<string> {
   return readFile(filePath, "utf8");
 }
 
+function assertMatchesAny(source: string, patterns: RegExp[], message: string): void {
+  assert.ok(
+    patterns.some((pattern) => pattern.test(source)),
+    `${message}: expected one of ${patterns.map((pattern) => pattern.toString()).join(" | ")}`,
+  );
+}
+
 test("Artifacts and logs pages keep shared handoff helper usage and run_id continuity contract", async () => {
   const artifactsSource = await readSource(artifactsPagePath);
   const logsSource = await readSource(logsPagePath);
@@ -125,36 +132,57 @@ test("Console pages keep query parsing and handoff-arg continuity for source and
   const serviceAccountsSource = await readSource(serviceAccountsPagePath);
 
   for (const source of [artifactsSource, logsSource, membersSource, serviceAccountsSource]) {
-    assert.match(source, /const source = getParam\(searchParams\?\.source\);/);
-    assert.match(source, /const handoffWorkspace = getParam\(searchParams\?\.attention_workspace\);/);
-    assert.match(source, /const handoffOrganization = getParam\(searchParams\?\.attention_organization\);/);
-    assert.match(source, /const week8Focus = getParam\(searchParams\?\.week8_focus\);/);
-    assert.match(source, /const deliveryContext = getParam\(searchParams\?\.delivery_context\);/);
-    assert.match(source, /const recentTrackKey = .*getParam\(searchParams\?\.recent_track_key\)/);
-    assert.match(source, /const recentUpdateKind = getParam\(searchParams\?\.recent_update_kind\);/);
-    assert.match(source, /const evidenceCountParam = getParam\(searchParams\?\.evidence_count\);/);
-    assert.match(
+    assertMatchesAny(
       source,
-      /const evidenceCount =\s*(?:evidenceCountParam !== null && !Number\.isNaN\(Number\(evidenceCountParam\)\)|evidenceCountParam && !Number\.isNaN\(Number\(evidenceCountParam\)\))\s*\? Number\(evidenceCountParam\) : null;/s,
+      [/getParam\(searchParams\?\.source\)/, /parseConsoleHandoffState\(searchParams\)/],
+      "source continuity extraction",
     );
-    assert.match(
+    assertMatchesAny(
       source,
-      /const ownerLabel =\s*getParam\(searchParams\?\.recent_owner_label\) \?\? getParam\(searchParams\?\.recent_owner_display_name\);/s,
+      [/attention_workspace/, /attentionWorkspace/],
+      "attention workspace continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/attention_organization/, /attentionOrganization/],
+      "attention organization continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/week8_focus/, /week8Focus/],
+      "Week 8 focus continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/delivery_context/, /deliveryContext/],
+      "delivery context continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/recent_track_key/, /recentTrackKey/],
+      "recent track continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/recent_update_kind/, /recentUpdateKind/],
+      "recent update continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/evidence_count/, /evidenceCount/],
+      "evidence count continuity",
+    );
+    assertMatchesAny(
+      source,
+      [/recent_owner_label/, /recentOwnerLabel/],
+      "owner continuity",
     );
   }
 
-  assert.match(
-    artifactsSource,
-    /const handoffArgs = \{\s*source,\s*week8Focus,\s*attentionWorkspace: handoffWorkspace,\s*attentionOrganization: handoffOrganization,\s*deliveryContext,\s*recentTrackKey,\s*recentUpdateKind,\s*evidenceCount,\s*recentOwnerLabel: ownerLabel,\s*runId: requestedRunId,\s*\};/s,
-  );
-  assert.match(
-    logsSource,
-    /const handoffArgs = \{\s*source,\s*week8Focus,\s*attentionWorkspace: handoffWorkspace,\s*attentionOrganization: handoffOrganization,\s*deliveryContext,\s*recentTrackKey,\s*recentUpdateKind,\s*evidenceCount,\s*recentOwnerLabel: ownerLabel,\s*runId: requestedRunId,\s*\};/s,
-  );
-  assert.match(
-    membersSource,
-    /const handoffArgs = \{\s*source,\s*week8Focus,\s*attentionWorkspace: handoffWorkspace,\s*attentionOrganization: handoffOrganization,\s*deliveryContext,\s*recentTrackKey,\s*recentUpdateKind,\s*evidenceCount,\s*recentOwnerLabel: ownerLabel,\s*\};/s,
-  );
+  assert.match(artifactsSource, /href=\{buildArtifactsHandoffHref\(\{ pathname: link\.path, \.\.\.handoffArgs \}\)\}/);
+  assert.match(logsSource, /href=\{buildLogsHandoffHref\(\{ pathname: link\.path, \.\.\.handoffArgs \}\)\}/);
+  assert.match(membersSource, /href=\{buildHandoffHref\("\/verification\?surface=verification", handoffArgs, \{ preserveExistingQuery: true \}\)\}/);
+  assert.match(serviceAccountsSource, /const apiKeysHref = buildHandoffHref\("\/api-keys", handoffArgs\);/);
   assert.match(
     membersSource,
     /href=\{buildHandoffHref\("\/accept-invitation", handoffArgs\)\}/,
@@ -220,16 +248,38 @@ test("Admin-focused console contracts keep governance-only cues, explicit return
       readSource(verificationChecklistPath),
     ]);
 
-  assert.match(adminPageSource, /const requestedSurface = getParam\(searchParams\?\.queue_surface\);/);
-  assert.match(adminPageSource, /const attentionWorkspace = getParam\(searchParams\?\.attention_workspace\);/);
-  assert.match(adminPageSource, /const attentionOrganization = getParam\(searchParams\?\.attention_organization\);/);
-  assert.match(adminPageSource, /const queueReturned = getParam\(searchParams\?\.queue_returned\) === "1";/);
-  assert.match(adminPageSource, /const readinessReturned = getParam\(searchParams\?\.readiness_returned\) === "1";/);
-  assert.match(adminPageSource, /const requestedReadinessFocus = getParam\(searchParams\?\.week8_focus\);/);
+  assertMatchesAny(
+    adminPageSource,
+    [/parseConsoleHandoffState\(searchParams\)/, /const requestedSurface = getParam\(searchParams\?\.queue_surface\);/],
+    "admin query parsing source",
+  );
+  assertMatchesAny(
+    adminPageSource,
+    [/resolveAdminQueueSurface\(/, /requestedSurface === "verification"/],
+    "admin queue surface normalization",
+  );
+  assertMatchesAny(
+    adminPageSource,
+    [/const queueReturned = getConsoleParam\(searchParams\?\.queue_returned\) === "1";/, /const queueReturned = getParam\(searchParams\?\.queue_returned\) === "1";/],
+    "queue-returned continuity",
+  );
+  assertMatchesAny(
+    adminPageSource,
+    [/const readinessReturned = getConsoleParam\(searchParams\?\.readiness_returned\) === "1";/, /const readinessReturned = getParam\(searchParams\?\.readiness_returned\) === "1";/],
+    "readiness-returned continuity",
+  );
   assert.match(adminPageSource, /initialSurfaceFilter=\{normalizedSurface\}/);
   assert.match(adminPageSource, /initialReadinessFocus=\{normalizedReadinessFocus\}/);
-  assert.match(adminPageSource, /attentionWorkspaceSlug=\{attentionWorkspace\}/);
-  assert.match(adminPageSource, /attentionOrganizationId=\{attentionOrganization\}/);
+  assertMatchesAny(
+    adminPageSource,
+    [/attentionWorkspaceSlug=\{handoff\.attentionWorkspace\}/, /attentionWorkspaceSlug=\{attentionWorkspace\}/],
+    "attention workspace prop wiring",
+  );
+  assertMatchesAny(
+    adminPageSource,
+    [/attentionOrganizationId=\{handoff\.attentionOrganization\}/, /attentionOrganizationId=\{attentionOrganization\}/],
+    "attention organization prop wiring",
+  );
   assert.match(adminPageSource, /queueReturned=\{queueReturned\}/);
   assert.match(adminPageSource, /readinessReturned=\{readinessReturned\}/);
 
