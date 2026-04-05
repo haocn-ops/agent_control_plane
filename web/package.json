@@ -12,6 +12,8 @@
     "test:page": "node --import tsx --test components/__tests__/*.test.ts tests/page-level/*.test.ts",
     "test:e2e": "node --import tsx --test tests/e2e/*.test.ts",
     "test:browser:smoke": "playwright test --config playwright.config.ts",
+    "test:browser:smoke:stable": "PLAYWRIGHT_REUSE_EXISTING_SERVER=0 playwright test --config playwright.config.ts",
+    "test:browser:smoke:dev": "PLAYWRIGHT_WEB_SERVER_COMMAND='npm run dev -- --hostname 127.0.0.1 --port 3005' PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS=120000 PLAYWRIGHT_REUSE_EXISTING_SERVER=1 playwright test --config playwright.config.ts",
     "test:browser:spike": "node scripts/browser-e2e-spike.mjs",
     "preview": "opennextjs-cloudflare build && node scripts/patch-opennext-output.mjs && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && node scripts/patch-opennext-output.mjs && opennextjs-cloudflare deploy",

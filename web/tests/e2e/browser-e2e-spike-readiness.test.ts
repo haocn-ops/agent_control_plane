@@ -11,6 +11,7 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(testDir, "../..");
 const packageJsonPath = path.resolve(webDir, "package.json");
 const probeScriptPath = path.resolve(webDir, "scripts/browser-e2e-spike.mjs");
+const playwrightConfigPath = path.resolve(webDir, "playwright.config.ts");
 const executionPlanPath = path.resolve(webDir, "../docs/saas_v1_execution_plan_zh.md");
 const browserSmokeSpecPath = path.resolve(webDir, "tests/browser/launchpad-session-onboarding.smoke.spec.ts");
 
@@ -20,11 +21,25 @@ test("browser-e2e spike probe keeps executable readiness report aligned with cur
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
   };
+  const playwrightConfig = await readFile(playwrightConfigPath, "utf8");
   const executionPlan = await readFile(executionPlanPath, "utf8");
   const browserSmokeSpec = await readFile(browserSmokeSpecPath, "utf8");
 
   assert.equal(packageJson.scripts?.["test:browser:spike"], "node scripts/browser-e2e-spike.mjs");
   assert.equal(packageJson.scripts?.["test:browser:smoke"], "playwright test --config playwright.config.ts");
+  assert.match(playwrightConfig, /const baseURL = process\.env\.PLAYWRIGHT_BASE_URL \?\? "http:\/\/127\.0\.0\.1:3005"/);
+  assert.match(playwrightConfig, /const webServerCommand =/);
+  assert.match(playwrightConfig, /process\.env\.PLAYWRIGHT_WEB_SERVER_COMMAND \?\?/);
+  assert.match(playwrightConfig, /npm run build && npm run start -- --hostname 127\.0\.0\.1 --port 3005/);
+  assert.match(playwrightConfig, /const webServerTimeout = Number\(process\.env\.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS \?\? "240000"\)/);
+  assert.match(playwrightConfig, /const reuseExistingServer =/);
+  assert.match(playwrightConfig, /process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER == null/);
+  assert.match(playwrightConfig, /\?\s*false/);
+  assert.match(playwrightConfig, /process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"/);
+  assert.match(playwrightConfig, /command:\s*webServerCommand/);
+  assert.match(playwrightConfig, /url:\s*baseURL/);
+  assert.match(playwrightConfig, /timeout:\s*webServerTimeout/);
+  assert.match(playwrightConfig, /reuseExistingServer,/);
   assert.match(packageJson.devDependencies?.["@playwright/test"] ?? "", /^\^?1\./);
   assert.match(executionPlan, /browser-e2e spike（後置但可先做最小基座）/);
   assert.match(executionPlan, /完整(?:\s*browser|瀏覽器)?\s*e2e[\s\S]{0,24}(?:尚未落地|仍後置)/);
@@ -57,6 +72,7 @@ test("browser-e2e spike probe keeps executable readiness report aligned with cur
       resolvable: boolean;
       configPresent: boolean;
       systemBrowserPresent: boolean;
+      productionServerBacked: boolean;
     };
     browserSmoke: {
       specPresent: boolean;
@@ -73,6 +89,7 @@ test("browser-e2e spike probe keeps executable readiness report aligned with cur
   assert.equal(report.playwright.resolvable, true);
   assert.equal(report.playwright.configPresent, true);
   assert.equal(report.playwright.systemBrowserPresent, true);
+  assert.equal(report.playwright.productionServerBacked, true);
   assert.equal(report.browserSmoke.specPresent, true);
   assert.equal(report.browserSmoke.scriptPresent, true);
   assert.equal(report.docs.browserSpikePlanned, true);

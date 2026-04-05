@@ -9,6 +9,7 @@ const webDir = path.resolve(scriptDir, "..");
 const packageJsonPath = path.resolve(webDir, "package.json");
 const executionPlanPath = path.resolve(webDir, "../docs/saas_v1_execution_plan_zh.md");
 const browserSmokeSpecPath = path.resolve(webDir, "tests/browser/launchpad-session-onboarding.smoke.spec.ts");
+const playwrightConfigPath = path.resolve(webDir, "playwright.config.ts");
 const systemChromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 const candidateRouteChain = [
@@ -28,6 +29,24 @@ function resolveOptional(specifier) {
   } catch {
     return null;
   }
+}
+
+function hasProductionBackedPlaywrightServer(playwrightConfig) {
+  return (
+    playwrightConfig.includes('const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3005"') &&
+    playwrightConfig.includes('const webServerCommand =') &&
+    playwrightConfig.includes('process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ??') &&
+    playwrightConfig.includes('"npm run build && npm run start -- --hostname 127.0.0.1 --port 3005"') &&
+    playwrightConfig.includes('const webServerTimeout = Number(process.env.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS ?? "240000")') &&
+    playwrightConfig.includes('const reuseExistingServer =') &&
+    playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER == null') &&
+    playwrightConfig.includes("? false") &&
+    playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"') &&
+    playwrightConfig.includes("command: webServerCommand") &&
+    playwrightConfig.includes("url: baseURL") &&
+    playwrightConfig.includes("timeout: webServerTimeout") &&
+    playwrightConfig.includes("reuseExistingServer")
+  );
 }
 
 function printHumanReport(report) {
@@ -56,24 +75,27 @@ async function pathExists(targetPath) {
 async function main() {
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
   const executionPlan = await readFile(executionPlanPath, "utf8");
+  const playwrightConfig = await readFile(playwrightConfigPath, "utf8");
   const playwrightDirectDependency = Boolean(
     packageJson.devDependencies?.["@playwright/test"] || packageJson.dependencies?.["@playwright/test"],
   );
   const playwrightResolvedPath = resolveOptional("@playwright/test");
-  const playwrightConfigPath =
+  const resolvedPlaywrightConfigPath =
     resolveOptional(path.resolve(webDir, "playwright.config.ts")) ||
     resolveOptional(path.resolve(webDir, "playwright.config.mjs")) ||
     resolveOptional(path.resolve(webDir, "playwright.config.js"));
   const systemBrowserPresent = await pathExists(systemChromePath);
   const browserSmokeSpecPresent = await pathExists(browserSmokeSpecPath);
   const browserSmokeScriptPresent = packageJson.scripts?.["test:browser:smoke"] === "playwright test --config playwright.config.ts";
+  const productionServerBacked = hasProductionBackedPlaywrightServer(playwrightConfig);
   const browserSmokeReady =
     playwrightDirectDependency &&
     playwrightResolvedPath &&
-    playwrightConfigPath &&
+    resolvedPlaywrightConfigPath &&
     systemBrowserPresent &&
     browserSmokeSpecPresent &&
-    browserSmokeScriptPresent;
+    browserSmokeScriptPresent &&
+    productionServerBacked;
 
   const report = {
     status: browserSmokeReady ? "ready" : "pending",
@@ -83,8 +105,9 @@ async function main() {
     playwright: {
       directDependency: playwrightDirectDependency,
       resolvable: Boolean(playwrightResolvedPath),
-      configPresent: Boolean(playwrightConfigPath),
+      configPresent: Boolean(resolvedPlaywrightConfigPath),
       systemBrowserPresent,
+      productionServerBacked,
     },
     browserSmoke: {
       specPresent: browserSmokeSpecPresent,
@@ -97,8 +120,8 @@ async function main() {
     },
     recommendedNextStep:
       browserSmokeReady
-        ? "Run `npm run test:browser:smoke` and keep the browser scope limited to launchpad -> session -> onboarding -> usage -> settings -> verification -> go-live -> admin until the next continuity slice is stable."
-        : "Install a direct browser test dependency/config and wire one minimal launchpad -> session -> onboarding -> usage -> settings -> verification -> go-live -> admin smoke without overstating coverage.",
+        ? "Run `npm run test:browser:smoke` against the production-backed local server and keep the browser scope limited to launchpad -> session -> onboarding -> usage -> settings -> verification -> go-live -> admin until the next continuity slice is stable."
+        : "Install a direct browser test dependency/config and wire one minimal launchpad -> session -> onboarding -> usage -> settings -> verification -> go-live -> admin smoke on a production-backed local server without overstating coverage.",
   };
 
   if (process.argv.includes("--json")) {

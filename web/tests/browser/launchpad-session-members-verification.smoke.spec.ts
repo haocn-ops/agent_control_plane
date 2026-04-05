@@ -1,0 +1,48 @@
+import { expect, test } from "@playwright/test";
+
+const adminReadinessEntry =
+  "/?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops";
+
+test("launchpad -> session -> members -> verification keeps minimal browser continuity", async ({ page }) => {
+  test.slow();
+
+  await page.goto(adminReadinessEntry);
+
+  await expect(page.getByRole("heading", { name: "SaaS Workspace Launch Hub" })).toBeVisible();
+  const sessionCheckpointLink = page.getByRole("link", { name: "Return to session checkpoint" }).first();
+  await expect(sessionCheckpointLink).toBeVisible();
+
+  await sessionCheckpointLink.click();
+
+  await expect(page).toHaveURL(/\/session\?/);
+  await expect(page).toHaveURL(/source=admin-readiness/);
+  await expect(page).toHaveURL(/week8_focus=credentials/);
+  await expect(page.getByRole("heading", { name: "Session and workspace access" })).toBeVisible();
+  const membersLink = page.getByRole("link", { name: "Review members and access" }).first();
+  await expect(membersLink).toBeVisible();
+
+  await membersLink.click();
+
+  await expect(page).toHaveURL(/\/members\?/);
+  await expect(page).toHaveURL(/source=admin-readiness/);
+  await expect(page).toHaveURL(/week8_focus=credentials/);
+  await expect(page).toHaveURL(/attention_workspace=preview/);
+  await expect(page).toHaveURL(/attention_organization=org_demo/);
+  await expect(page.getByRole("heading", { name: "Workspace access" })).toBeVisible();
+  await expect(page.getByText("Manual onboarding handoff")).toBeVisible();
+  const verificationLink = page.getByRole("link", { name: "Capture verification evidence" }).first();
+  await expect(verificationLink).toBeVisible();
+
+  await verificationLink.click();
+
+  await expect(page).toHaveURL(/\/verification\?/);
+  await expect(page).toHaveURL(/surface=verification/);
+  await expect(page).toHaveURL(/source=admin-readiness/);
+  await expect(page).toHaveURL(/week8_focus=credentials/);
+  await expect(page).toHaveURL(/attention_workspace=preview/);
+  await expect(page).toHaveURL(/attention_organization=org_demo/);
+  await expect(page.getByRole("heading", { name: "Week 8 launch checklist" })).toBeVisible();
+  await expect(page.getByText("Verification evidence lane")).toBeVisible();
+  await expect(page.getByText("Admin follow-up context")).toBeVisible();
+  await expect(page.getByText("Focus Credentials")).toBeVisible();
+});
