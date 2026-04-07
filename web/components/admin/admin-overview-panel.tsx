@@ -1764,7 +1764,7 @@ export function AdminOverviewPanel({
             </Link>
             <Link
               href={buildSurfaceFollowUpHref({
-                pathname: "/settings",
+                pathname: "/settings?intent=manage-plan",
                 runId: focusedRunId,
                 readinessFocus,
                 workspaceSlug: attentionWorkspaceSlug,

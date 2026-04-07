@@ -25,6 +25,7 @@ test("Admin overview keeps readiness follow-up handoff links on shared query hel
   assert.match(source, /\{ preserveExistingQuery: true \}/);
 
   assert.match(source, /pathname: "\/settings\?intent=resolve-billing"/);
+  assert.match(source, /pathname: "\/settings\?intent=manage-plan"/);
   assert.match(source, /pathname: "\/onboarding"/);
   assert.match(source, /pathname: "\/verification\?surface=verification"/);
   assert.match(source, /pathname: "\/go-live\?surface=go_live"/);
