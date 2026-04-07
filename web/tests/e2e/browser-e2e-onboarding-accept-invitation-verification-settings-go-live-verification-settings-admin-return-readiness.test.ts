@@ -22,7 +22,7 @@ test(
     );
     assert.match(
       browserSmokeSpec,
-      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops/,
+      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
     );
     assert.match(browserSmokeSpec, /Launch lane context/);
     assert.match(browserSmokeSpec, /Invite-to-accept path/);
@@ -56,6 +56,7 @@ test(
     assert.match(browserSmokeSpec, /recent_track_key=verification/);
     assert.match(browserSmokeSpec, /recent_update_kind=verification/);
     assert.match(browserSmokeSpec, /evidence_count=2/);
-    assert.match(browserSmokeSpec, /recent_owner_\(label\|display_name\)=Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_display_name=Avery%20Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_email=avery\.ops%40govrail\.test/);
   },
 );

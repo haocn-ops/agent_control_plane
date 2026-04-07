@@ -8,21 +8,21 @@ const testDir = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(testDir, "../..");
 const browserSpecPath = path.resolve(
   webDir,
-  "tests/browser/onboarding-accept-invitation-verification-settings-go-live-admin-return.smoke.spec.ts",
+  "tests/browser/onboarding-accept-invitation-verification-settings-go-live-settings-admin-return.smoke.spec.ts",
 );
 
 test(
-  "browser readiness onboarding->accept-invitation->verification->settings->go-live->admin smoke keeps return continuity explicit",
+  "browser readiness onboarding->accept-invitation->verification->settings->go-live->settings->admin smoke keeps return continuity explicit",
   async () => {
     const browserSmokeSpec = await readFile(browserSpecPath, "utf8");
 
     assert.match(
       browserSmokeSpec,
-      /onboarding -> accept-invitation -> verification -> settings -> go-live -> admin keeps readiness return continuity/,
+      /onboarding -> accept-invitation -> verification -> settings -> go-live -> settings -> admin keeps readiness return continuity/,
     );
     assert.match(
       browserSmokeSpec,
-      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops/,
+      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
     );
     assert.match(browserSmokeSpec, /Launch lane context/);
     assert.match(browserSmokeSpec, /Invite-to-accept path/);
@@ -41,6 +41,8 @@ test(
     assert.match(browserSmokeSpec, /surface=go_live/);
     assert.match(browserSmokeSpec, /Mock go-live drill/);
     assert.match(browserSmokeSpec, /Session-aware drill lane/);
+    assert.match(browserSmokeSpec, /Review billing \+ settings/);
+    assert.match(browserSmokeSpec, /Workspace configuration/);
     assert.match(browserSmokeSpec, /Return to admin readiness view/);
     assert.match(browserSmokeSpec, /readiness_returned=1/);
     assert.match(browserSmokeSpec, /SaaS admin overview/);
@@ -53,6 +55,7 @@ test(
     assert.match(browserSmokeSpec, /recent_track_key=verification/);
     assert.match(browserSmokeSpec, /recent_update_kind=verification/);
     assert.match(browserSmokeSpec, /evidence_count=2/);
-    assert.match(browserSmokeSpec, /recent_owner_label=Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_display_name=Avery%20Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_email=avery\.ops%40govrail\.test/);
   },
 );

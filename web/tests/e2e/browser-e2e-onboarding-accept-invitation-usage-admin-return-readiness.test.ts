@@ -18,9 +18,9 @@ test("browser readiness onboarding->accept-invitation->usage->admin smoke keeps 
     browserSmokeSpec,
     /onboarding -> accept-invitation -> usage -> admin keeps readiness return continuity/,
   );
-  assert.match(
-    browserSmokeSpec,
-    /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops/,
+    assert.match(
+      browserSmokeSpec,
+    /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
   );
   assert.match(browserSmokeSpec, /Launch lane context/);
   assert.match(browserSmokeSpec, /Invite-to-accept path/);
@@ -39,4 +39,6 @@ test("browser readiness onboarding->accept-invitation->usage->admin smoke keeps 
   assert.match(browserSmokeSpec, /week8_focus=credentials/);
   assert.match(browserSmokeSpec, /attention_workspace=preview/);
   assert.match(browserSmokeSpec, /attention_organization=org_demo/);
+  assert.match(browserSmokeSpec, /recent_owner_display_name=Avery%20Ops/);
+  assert.match(browserSmokeSpec, /recent_owner_email=avery\.ops%40govrail\.test/);
 });
