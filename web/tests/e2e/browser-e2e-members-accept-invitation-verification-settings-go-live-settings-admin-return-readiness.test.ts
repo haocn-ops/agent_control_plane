@@ -20,6 +20,10 @@ test(
       browserSmokeSpec,
       /members -> accept-invitation -> verification -> settings -> go-live -> settings -> admin keeps readiness return continuity/,
     );
+    assert.match(
+      browserSmokeSpec,
+      /\/members\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+    );
     assert.match(browserSmokeSpec, /Workspace access/);
     assert.match(browserSmokeSpec, /Open accept-invitation/);
     assert.match(browserSmokeSpec, /Accept workspace invitation/);
@@ -31,6 +35,7 @@ test(
     assert.match(browserSmokeSpec, /Workspace configuration/);
     assert.match(browserSmokeSpec, /Return to admin readiness view/);
     assert.match(browserSmokeSpec, /readiness_returned=1/);
-    assert.match(browserSmokeSpec, /recent_owner_\(label\|display_name\)=Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_display_name=Avery%20Ops/);
+    assert.match(browserSmokeSpec, /recent_owner_email=avery\.ops%40govrail\.test/);
   },
 );

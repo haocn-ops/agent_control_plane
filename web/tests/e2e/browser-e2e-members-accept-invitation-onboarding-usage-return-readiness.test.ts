@@ -20,7 +20,7 @@ test("browser readiness members->accept-invitation->onboarding->usage smoke keep
   );
   assert.match(
     browserSmokeSpec,
-    /\/members\?source=onboarding&attention_workspace=preview&attention_organization=org_preview&delivery_context=recent_activity&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Owner/,
+    /\/members\?source=onboarding&attention_workspace=preview&attention_organization=org_preview&delivery_context=recent_activity&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Owner&recent_owner_display_name=Preview%20Owner&recent_owner_email=preview\.owner%40govrail\.test/,
   );
   assert.match(browserSmokeSpec, /Workspace access/);
   assert.match(browserSmokeSpec, /Manual onboarding handoff/);
@@ -41,5 +41,6 @@ test("browser readiness members->accept-invitation->onboarding->usage smoke keep
   assert.match(browserSmokeSpec, /recent_track_key=verification/);
   assert.match(browserSmokeSpec, /recent_update_kind=verification/);
   assert.match(browserSmokeSpec, /evidence_count=2/);
-  assert.match(browserSmokeSpec, /recent_owner_label=Owner/);
+  assert.match(browserSmokeSpec, /recent_owner_display_name=Preview%20Owner/);
+  assert.match(browserSmokeSpec, /recent_owner_email=preview\.owner%40govrail\.test/);
 });
