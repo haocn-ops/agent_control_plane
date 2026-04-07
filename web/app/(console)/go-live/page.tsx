@@ -84,7 +84,7 @@ export default async function GoLivePage({
         sessionHref={buildConsoleRunAwareHandoffHref("/session", handoff, activeRunId)}
       />
       <ConsoleAdminFollowUp
-        handoff={handoff}
+        handoff={runAwareHandoff}
         payload={
           followUpSource
             ? {

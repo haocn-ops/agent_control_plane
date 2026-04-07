@@ -48,7 +48,7 @@ test("usage page keeps explicit admin-return, evidence-loop, and dashboard hando
   );
   assert.match(
     source,
-    /<ConsoleAdminFollowUp[\s\S]*payload=\{[\s\S]*source: followUpSource[\s\S]*week8Focus: handoff\.week8Focus[\s\S]*attentionOrganization: handoff\.attentionOrganization[\s\S]*deliveryContext: handoff\.deliveryContext[\s\S]*recentTrackKey: handoff\.recentTrackKey[\s\S]*recentUpdateKind: handoff\.recentUpdateKind[\s\S]*evidenceCount: handoff\.evidenceCount[\s\S]*ownerDisplayName: handoff\.recentOwnerDisplayName \?\? handoff\.recentOwnerLabel[\s\S]*ownerEmail: handoff\.recentOwnerEmail[\s\S]*surface="usage"/s,
+    /<ConsoleAdminFollowUp[\s\S]*handoff=\{runAwareHandoff\}[\s\S]*payload=\{[\s\S]*source: followUpSource[\s\S]*week8Focus: handoff\.week8Focus[\s\S]*attentionOrganization: handoff\.attentionOrganization[\s\S]*deliveryContext: handoff\.deliveryContext[\s\S]*recentTrackKey: handoff\.recentTrackKey[\s\S]*recentUpdateKind: handoff\.recentUpdateKind[\s\S]*evidenceCount: handoff\.evidenceCount[\s\S]*ownerDisplayName: handoff\.recentOwnerDisplayName \?\? handoff\.recentOwnerLabel[\s\S]*ownerEmail: handoff\.recentOwnerEmail[\s\S]*surface="usage"/s,
   );
 
   assert.match(source, /<CardTitle>Plan limit governance lane<\/CardTitle>/);

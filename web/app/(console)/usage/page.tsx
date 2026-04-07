@@ -139,7 +139,7 @@ export default async function UsagePage({
         </CardContent>
       </Card>
       <ConsoleAdminFollowUp
-        handoff={handoff}
+        handoff={runAwareHandoff}
         payload={
           followUpSource
             ? {

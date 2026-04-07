@@ -16,7 +16,7 @@ test("go-live page keeps explicit admin-return, drill, and delivery-panel handof
 
   assert.match(
     source,
-    /import \{[\s\S]*buildConsoleAdminReturnHref,[\s\S]*buildConsoleAdminReturnState,[\s\S]*buildConsoleHandoffHref,[\s\S]*buildConsoleRunAwareHandoffHref,[\s\S]*buildRecentDeliveryDescription,[\s\S]*buildRecentDeliveryMetadata,[\s\S]*parseConsoleHandoffState[\s\S]*\} from "@\/lib\/console-handoff";/s,
+    /import \{[\s\S]*buildConsoleAdminReturnHref,[\s\S]*buildConsoleAdminReturnState,[\s\S]*buildConsoleRunAwareHandoffHref,[\s\S]*buildRecentDeliveryDescription,[\s\S]*buildRecentDeliveryMetadata,[\s\S]*parseConsoleHandoffState[\s\S]*\} from "@\/lib\/console-handoff";/s,
   );
   assert.match(source, /import \{ requestControlPlanePageData \} from "@\/lib\/server-control-plane-page-fetch";/);
   assert.match(source, /const handoff = parseConsoleHandoffState\(searchParams\);/);
@@ -54,22 +54,24 @@ test("go-live page keeps explicit admin-return, drill, and delivery-panel handof
   );
   assert.match(
     source,
-    /<ConsoleAdminFollowUp[\s\S]*payload=\{[\s\S]*source: followUpSource[\s\S]*week8Focus: handoff\.week8Focus[\s\S]*attentionOrganization: handoff\.attentionOrganization[\s\S]*deliveryContext: handoff\.deliveryContext[\s\S]*recentTrackKey[\s\S]*recentUpdateKind[\s\S]*evidenceCount: recentEvidenceCount[\s\S]*ownerDisplayName: recentOwnerDisplayName[\s\S]*ownerEmail: recentOwnerEmail[\s\S]*surface="go_live"/s,
+    /<ConsoleAdminFollowUp[\s\S]*handoff=\{runAwareHandoff\}[\s\S]*payload=\{[\s\S]*source: followUpSource[\s\S]*week8Focus: handoff\.week8Focus[\s\S]*attentionOrganization: handoff\.attentionOrganization[\s\S]*deliveryContext: handoff\.deliveryContext[\s\S]*recentTrackKey[\s\S]*recentUpdateKind[\s\S]*evidenceCount: recentEvidenceCount[\s\S]*ownerDisplayName: recentOwnerDisplayName[\s\S]*ownerEmail: recentOwnerEmail[\s\S]*surface="go_live"/s,
   );
 
   assert.match(source, /<CardTitle>Session-aware drill lane<\/CardTitle>/);
   assert.match(source, /const verificationHref = buildConsoleRunAwareHandoffHref\("\/verification\?surface=verification", handoff, activeRunId\);/);
   assert.match(source, /const usageHref = buildConsoleRunAwareHandoffHref\("\/usage", handoff, activeRunId\);/);
-  assert.match(source, /const settingsHref = buildConsoleRunAwareHandoffHref\("\/settings", handoff, activeRunId\);/);
+  assert.match(source, /const billingSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=manage-plan", handoff, activeRunId\);/);
+  assert.match(source, /const upgradeSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=upgrade", handoff, activeRunId\);/);
   assert.match(source, /const playgroundHref = buildConsoleRunAwareHandoffHref\("\/playground", handoff, activeRunId\);/);
   assert.match(source, /const artifactsHref = buildConsoleRunAwareHandoffHref\("\/artifacts", handoff, activeRunId\);/);
   assert.match(source, /href=\{verificationHref\}[\s\S]*Reopen verification evidence/s);
   assert.match(source, /href=\{usageHref\}[\s\S]*Confirm usage posture/s);
-  assert.match(source, /href=\{settingsHref\}[\s\S]*Review billing \+ settings/s);
+  assert.match(source, /href=\{billingSettingsHref\}[\s\S]*Review billing \+ settings/s);
   assert.match(source, /href=\{playgroundHref\}[\s\S]*Revisit playground run/s);
   assert.match(source, /href=\{artifactsHref\}[\s\S]*Inspect artifacts evidence/s);
 
   assert.match(source, /<CardTitle>Governance recap<\/CardTitle>/);
+  assert.match(source, /href=\{upgradeSettingsHref\}[\s\S]*Settings upgrade intent/s);
   assert.match(source, /copy that note into Verification's evidence lane/);
   assert.match(source, /<Link href=\{adminHref\}>\{adminLinkLabel\}<\/Link>/);
 
