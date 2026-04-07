@@ -2366,7 +2366,7 @@ export function WorkspaceSettingsPanel({
                 Protocol
                 <select
                   value={ssoDraft.protocol}
-                  disabled={!ssoFeatureEnabled}
+                  disabled={!ssoFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     const value = event.currentTarget.value === "saml" ? "saml" : "oidc";
                     setSsoDraft((current) => ({ ...current, protocol: value }));
@@ -2385,7 +2385,7 @@ export function WorkspaceSettingsPanel({
                   type="url"
                   placeholder="https://idp.example.com/.well-known/openid-configuration"
                   value={ssoDraft.metadataUrl}
-                  disabled={!ssoFeatureEnabled}
+                  disabled={!ssoFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setSsoDraft((current) => ({ ...current, metadataUrl: event.currentTarget.value }));
                     setSsoPreflightNotice(null);
@@ -2400,7 +2400,7 @@ export function WorkspaceSettingsPanel({
                   type="text"
                   placeholder="workspace-console"
                   value={ssoDraft.entityId}
-                  disabled={!ssoFeatureEnabled}
+                  disabled={!ssoFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setSsoDraft((current) => ({ ...current, entityId: event.currentTarget.value }));
                     setSsoPreflightNotice(null);
@@ -2415,7 +2415,7 @@ export function WorkspaceSettingsPanel({
                   type="text"
                   placeholder="example.com, sub.example.com"
                   value={ssoDraft.domains}
-                  disabled={!ssoFeatureEnabled}
+                  disabled={!ssoFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setSsoDraft((current) => ({ ...current, domains: event.currentTarget.value }));
                     setSsoPreflightNotice(null);
@@ -2720,7 +2720,7 @@ export function WorkspaceSettingsPanel({
                   type="text"
                   placeholder="us-east-1"
                   value={dedicatedDraft.targetRegion}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setDedicatedDraft((current) => ({ ...current, targetRegion: event.currentTarget.value }));
                     setDedicatedPreflightNotice(null);
@@ -2733,7 +2733,7 @@ export function WorkspaceSettingsPanel({
                 Data classification
                 <select
                   value={dedicatedDraft.dataClassification}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     const value = event.currentTarget.value;
                     setDedicatedDraft((current) => ({
@@ -2757,7 +2757,7 @@ export function WorkspaceSettingsPanel({
                   type="email"
                   placeholder="owner@example.com"
                   value={dedicatedDraft.requesterEmail}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setDedicatedDraft((current) => ({ ...current, requesterEmail: event.currentTarget.value }));
                     setDedicatedPreflightNotice(null);
@@ -2772,7 +2772,7 @@ export function WorkspaceSettingsPanel({
                   type="text"
                   placeholder="6 vCPU / 16 GB memory"
                   value={dedicatedDraft.requestedCapacity}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setDedicatedDraft((current) => ({ ...current, requestedCapacity: event.currentTarget.value }));
                     setDedicatedPreflightNotice(null);
@@ -2787,7 +2787,7 @@ export function WorkspaceSettingsPanel({
                   type="text"
                   placeholder="99.9% / 24x7"
                   value={dedicatedDraft.requestedSla}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setDedicatedDraft((current) => ({ ...current, requestedSla: event.currentTarget.value }));
                     setDedicatedPreflightNotice(null);
@@ -2800,7 +2800,7 @@ export function WorkspaceSettingsPanel({
                 Network/isolation notes (optional)
                 <textarea
                   value={dedicatedDraft.networkNotes}
-                  disabled={!dedicatedEnvironmentFeatureEnabled}
+                  disabled={!dedicatedEnvironmentFeatureEnabled || !hasEnterpriseWriteAccess}
                   onChange={(event) => {
                     setDedicatedDraft((current) => ({ ...current, networkNotes: event.currentTarget.value }));
                     setDedicatedPreflightNotice(null);

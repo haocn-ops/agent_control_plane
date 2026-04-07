@@ -196,9 +196,37 @@ test("Settings panel keeps enterprise preflight and submit-status guidance seman
     source,
     /<Button[\s\S]*variant="secondary"[\s\S]*disabled=\{!hasEnterpriseWriteAccess \|\| !ssoPreflightReady\}[\s\S]*>\s*Validate preflight/s,
   );
+  assert.match(source, /value=\{ssoDraft\.protocol\}[\s\S]*disabled=\{!ssoFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s);
+  assert.match(source, /value=\{ssoDraft\.metadataUrl\}[\s\S]*disabled=\{!ssoFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s);
+  assert.match(source, /value=\{ssoDraft\.entityId\}[\s\S]*disabled=\{!ssoFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s);
+  assert.match(source, /value=\{ssoDraft\.domains\}[\s\S]*disabled=\{!ssoFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s);
   assert.match(
     source,
     /<Button[\s\S]*variant="secondary"[\s\S]*disabled=\{!hasEnterpriseWriteAccess \|\| !dedicatedPreflightReady\}[\s\S]*>\s*Validate preflight/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.targetRegion\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.dataClassification\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.requesterEmail\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.requestedCapacity\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.requestedSla\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
+  );
+  assert.match(
+    source,
+    /value=\{dedicatedDraft\.networkNotes\}[\s\S]*disabled=\{!dedicatedEnvironmentFeatureEnabled \|\| !hasEnterpriseWriteAccess\}/s,
   );
   assert.match(source, /Submit status: \{ssoSubmitDisabledReason \?\? "Ready for controlled live write\."\}/);
   assert.match(
