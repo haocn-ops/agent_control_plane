@@ -4,13 +4,13 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
 import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
-import { buildVerificationChecklistHandoffHref } from "@/components/verification/week8-verification-checklist";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { buildAdminReturnHref, buildVerificationChecklistHandoffHref } from "@/lib/handoff-query";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
 
 type UsageSource = "admin-attention" | "admin-readiness" | "onboarding";
-type DeliveryContext = "recent_activity";
+type DeliveryContext = "recent_activity" | "week8";
 
 function normalizeSource(source?: string | null): UsageSource | null {
   if (source === "admin-attention" || source === "admin-readiness" || source === "onboarding") {
@@ -20,7 +20,7 @@ function normalizeSource(source?: string | null): UsageSource | null {
 }
 
 function normalizeDeliveryContext(value?: string | null): DeliveryContext | null {
-  return value === "recent_activity" ? value : null;
+  return value === "recent_activity" || value === "week8" ? value : null;
 }
 
 function normalizeRecentTrackKey(value?: string | null): "verification" | "go_live" | null {
@@ -59,10 +59,13 @@ function buildMetadataLines(metadata: {
   update?: ControlPlaneAdminDeliveryUpdateKind | null;
   evidence?: number | null;
   ownerLabel?: string | null;
+  ownerDisplayName?: string | null;
+  ownerEmail?: string | null;
 }): string[] {
   const lines: string[] = [];
-  if (metadata.ownerLabel) {
-    lines.push(`Latest handoff owner: ${metadata.ownerLabel}`);
+  const ownerSummary = metadata.ownerDisplayName ?? metadata.ownerEmail ?? metadata.ownerLabel ?? null;
+  if (ownerSummary) {
+    lines.push(`Latest handoff owner: ${ownerSummary}`);
   }
   if (metadata.track) {
     lines.push(`Recent admin activity touched the ${metadata.track} track`);
@@ -313,6 +316,7 @@ function isEnabledFeature(value: unknown): boolean {
 export function WorkspaceUsageDashboard({
   workspaceSlug,
   source,
+  runId,
   week8Focus,
   attentionWorkspace,
   attentionOrganization,
@@ -321,9 +325,12 @@ export function WorkspaceUsageDashboard({
   recentUpdateKind,
   evidenceCount,
   recentOwnerLabel,
+  recentOwnerDisplayName,
+  recentOwnerEmail,
 }: {
   workspaceSlug: string;
   source?: string | null;
+  runId?: string | null;
   week8Focus?: string | null;
   attentionWorkspace?: string | null;
   attentionOrganization?: string | null;
@@ -332,6 +339,8 @@ export function WorkspaceUsageDashboard({
   recentUpdateKind?: string | null;
   evidenceCount?: number | null;
   recentOwnerLabel?: string | null;
+  recentOwnerDisplayName?: string | null;
+  recentOwnerEmail?: string | null;
 }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["workspace-usage-dashboard", workspaceSlug],
@@ -340,6 +349,8 @@ export function WorkspaceUsageDashboard({
 
   const normalizedSource = normalizeSource(source);
   const onboardingState = data?.onboarding ?? null;
+  const latestDemoRun = onboardingState?.latest_demo_run ?? null;
+  const activeRunId = latestDemoRun?.run_id ?? runId ?? null;
   const latestDemoRunHint = onboardingState?.latest_demo_run_hint ?? null;
   const deliveryGuidance = onboardingState?.delivery_guidance ?? null;
   const contextCard = getContextCard(normalizedSource, {
@@ -348,6 +359,8 @@ export function WorkspaceUsageDashboard({
       update: normalizeRecentUpdateKind(recentUpdateKind),
       evidence: evidenceCount ?? normalizeEvidenceCount(evidenceCount),
       ownerLabel: recentOwnerLabel,
+      ownerDisplayName: recentOwnerDisplayName,
+      ownerEmail: recentOwnerEmail,
     }),
     onboardingLines: [latestDemoRunHint?.status_label, latestDemoRunHint?.suggested_action, deliveryGuidance?.summary].filter(
       (line): line is string => typeof line === "string" && line.trim().length > 0,
@@ -364,7 +377,11 @@ export function WorkspaceUsageDashboard({
     recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
     evidenceCount,
     recentOwnerLabel,
+    recentOwnerDisplayName,
+    recentOwnerEmail,
   };
+  const buildRunAwareUsageHref = (pathname: string): string =>
+    buildVerificationChecklistHandoffHref({ pathname, ...handoffHrefArgs, runId: activeRunId });
 
   const workspace = data?.workspace;
   const plan = data?.plan;
@@ -379,13 +396,31 @@ export function WorkspaceUsageDashboard({
   const overLimitMetricLabels = overLimitMetrics.map(([metric]) => formatMetricLabel(metric));
   const usageWindowLabel = usage ? `${formatDate(usage.period_start)} to ${formatDate(usage.period_end)}` : "-";
   const billingActionHref = billingSummary?.action?.href ?? "/settings?intent=manage-plan";
-  const verificationHref = buildVerificationChecklistHandoffHref({
-    pathname: "/verification?surface=verification",
-    ...handoffHrefArgs,
+  const verificationHref = buildRunAwareUsageHref("/verification?surface=verification");
+  const artifactsHref = buildRunAwareUsageHref("/artifacts");
+  const settingsHref = buildRunAwareUsageHref("/settings");
+  const settingsUpgradeHref = buildRunAwareUsageHref("/settings?intent=upgrade");
+  const adminHref = buildAdminReturnHref("/admin", {
+    source: normalizedSource,
+    runId: activeRunId,
+    queueSurface: normalizeRecentTrackKey(recentTrackKey),
+    week8Focus,
+    attentionWorkspace: attentionWorkspace ?? workspaceSlug,
+    attentionOrganization,
+    deliveryContext: normalizeDeliveryContext(deliveryContext),
+    recentTrackKey: normalizeRecentTrackKey(recentTrackKey),
+    recentUpdateKind: normalizeRecentUpdateKind(recentUpdateKind),
+    evidenceCount,
+    recentOwnerLabel,
+    recentOwnerDisplayName,
+    recentOwnerEmail,
   });
-  const artifactsHref = buildVerificationChecklistHandoffHref({ pathname: "/artifacts", ...handoffHrefArgs });
-  const settingsHref = buildVerificationChecklistHandoffHref({ pathname: "/settings", ...handoffHrefArgs });
-  const adminHref = buildVerificationChecklistHandoffHref({ pathname: "/admin", ...handoffHrefArgs });
+  const adminReturnLabel =
+    normalizedSource === "admin-attention"
+      ? "Return to admin queue"
+      : normalizedSource === "admin-readiness"
+        ? "Return to admin readiness view"
+        : "Return to admin overview";
 
   return (
     <div className="space-y-6">
@@ -404,19 +439,19 @@ export function WorkspaceUsageDashboard({
           ) : null}
           <div className="flex flex-wrap gap-2">
             <Link
-              href={buildVerificationChecklistHandoffHref({ pathname: "/playground", ...handoffHrefArgs })}
+              href={buildRunAwareUsageHref("/playground")}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Step 1: Run in playground
             </Link>
             <Link
-              href={buildVerificationChecklistHandoffHref({ pathname: "/verification?surface=verification", ...handoffHrefArgs })}
+              href={verificationHref}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Step 3: Capture verification evidence
             </Link>
             <Link
-              href={buildVerificationChecklistHandoffHref({ pathname: "/api-keys", ...handoffHrefArgs })}
+              href={buildRunAwareUsageHref("/api-keys")}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Optional: Review API key scopes
@@ -458,12 +493,47 @@ export function WorkspaceUsageDashboard({
               href={adminHref}
               className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
             >
-              Return to admin overview
+              {adminReturnLabel}
             </Link>
           </div>
           <p className="text-xs text-muted">
             Navigation only: this handoff preserves workspace context, but it does not auto-attach evidence or resolve
             billing or rollout issues for you.
+          </p>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Audit export continuity</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="text-muted">
+            Usage verifies the run, but the same Latest export receipt (filename, filters, SHA-256) from /settings
+            needs to show up again in verification and the admin handoff so every lane keeps one shared evidence thread.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={settingsUpgradeHref}
+              className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+            >
+              Reopen audit export receipt
+            </Link>
+            <Link
+              href={verificationHref}
+              className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+            >
+              Reopen verification evidence
+            </Link>
+            <Link
+              href={adminHref}
+              className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
+            >
+              {adminReturnLabel}
+            </Link>
+          </div>
+          <p className="text-xs text-muted">
+            Navigation-only manual relay: these links preserve workspace context but do not auto-attach the receipt or
+            resolve rollout issues for you.
           </p>
         </CardContent>
       </Card>
@@ -488,7 +558,7 @@ export function WorkspaceUsageDashboard({
                 {contextCard.actions.map((action) => (
                   <Link
                     key={action.label}
-                    href={buildVerificationChecklistHandoffHref({ pathname: action.path, ...handoffHrefArgs })}
+                    href={buildRunAwareUsageHref(action.path)}
                     className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
                   >
                     {action.label}
