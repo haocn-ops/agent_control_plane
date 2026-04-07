@@ -32,21 +32,31 @@ function resolveOptional(specifier) {
 }
 
 function hasProductionBackedPlaywrightServer(playwrightConfig) {
-  return (
-    playwrightConfig.includes('const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3005"') &&
-    playwrightConfig.includes('const webServerCommand =') &&
-    playwrightConfig.includes('process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ??') &&
-    playwrightConfig.includes('"npm run build && npm run start -- --hostname 127.0.0.1 --port 3005"') &&
-    playwrightConfig.includes('const webServerTimeout = Number(process.env.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS ?? "240000")') &&
-    playwrightConfig.includes('const reuseExistingServer =') &&
-    playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER == null') &&
-    playwrightConfig.includes("? true") &&
-    playwrightConfig.includes('process.env.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1"') &&
-    playwrightConfig.includes("command: webServerCommand") &&
-    playwrightConfig.includes("url: baseURL") &&
-    playwrightConfig.includes("timeout: webServerTimeout") &&
-    playwrightConfig.includes("reuseExistingServer")
-  );
+  const basePatterns = [
+    /const host = process\.env\.PLAYWRIGHT_HOST \?\? "127\.0\.0\.1";/,
+    /const port = Number\(process\.env\.PLAYWRIGHT_PORT \?\? "3005"\);/,
+    /const defaultBaseURL = `http:\/\/\$\{host\}:\$\{port\}`;/,
+    /const baseURL = process\.env\.PLAYWRIGHT_BASE_URL \?\? defaultBaseURL;/,
+    /const defaultWebServerCommand = `npm run build && npm run start -- --hostname \$\{host\} --port \$\{port\}`;/,
+    /const webServerCommand =[\s\S]*process\.env\.PLAYWRIGHT_WEB_SERVER_COMMAND \?\?[\s\S]*defaultWebServerCommand;/,
+    /const webServerTimeout = Number\(process\.env\.PLAYWRIGHT_WEB_SERVER_TIMEOUT_MS \?\? "240000"\)/,
+    /const reuseExistingServer =[\s\S]*process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER == null[\s\S]*\? true[\s\S]*process\.env\.PLAYWRIGHT_REUSE_EXISTING_SERVER === "1";/,
+    /const manageWebServer =[\s\S]*process\.env\.PLAYWRIGHT_MANAGE_WEB_SERVER == null[\s\S]*process\.env\.PLAYWRIGHT_BASE_URL == null[\s\S]*process\.env\.PLAYWRIGHT_MANAGE_WEB_SERVER === "1";/,
+  ];
+
+  const webServerPatterns = [
+    /webServer:\s*manageWebServer/,
+    /command:\s*webServerCommand/,
+    /url:\s*baseURL/,
+    /timeout:\s*webServerTimeout/,
+    /reuseExistingServer,/,
+  ];
+
+  const baseMatches = basePatterns.every((pattern) => pattern.test(playwrightConfig));
+  const serverMatches = webServerPatterns.every((pattern) => pattern.test(playwrightConfig));
+  const explicitBaseURLProvided = Boolean(process.env.PLAYWRIGHT_BASE_URL);
+
+  return baseMatches && (explicitBaseURLProvided || serverMatches);
 }
 
 function printHumanReport(report) {
