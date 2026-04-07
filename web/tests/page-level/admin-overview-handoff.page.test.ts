@@ -38,34 +38,26 @@ test("Admin overview keeps attention action query naming consistent for surface 
     source,
     /import \{\s*buildWorkspaceNavigationHref,\s*performWorkspaceSwitch,\s*\} from "@\/lib\/client-workspace-navigation";/s,
   );
-  assert.match(source, /searchParams:\s*\{[\s\S]*source: "admin-attention"/);
-  assert.match(source, /surface: targetSurface,/);
-  assert.match(source, /run_id: workspace\.latest_demo_run_id \?\? null,/);
-  assert.match(source, /pathname: targetSurface === "go_live" \? "\/go-live" : "\/verification"/);
-  assert.match(source, /attention_workspace: workspace\.slug,/);
-  assert.match(source, /attention_organization:/);
-  assert.match(source, /delivery_context:/);
-  assert.match(source, /recent_track_key:/);
-  assert.match(source, /recent_update_kind:/);
-  assert.match(source, /evidence_count:/);
-  assert.match(source, /recent_owner_label:/);
-  assert.match(source, /recent_owner_display_name:/);
-  assert.match(source, /recent_owner_email:/);
+  assert.match(
+    source,
+    /import \{\s*adminAttentionActionLabel,\s*buildAdminAttentionNavigationTarget,\s*buildAdminReadinessNavigationTarget,\s*\} from "@\/lib\/admin-follow-up-navigation";/s,
+  );
   assert.match(source, /const outcome = await performWorkspaceSwitch\(\{/);
   assert.match(source, /workspace_slug: options\.workspaceSlug,/);
+  assert.match(source, /await navigateWithWorkspaceContext\(buildAdminAttentionNavigationTarget\(workspace, options\)\);/);
+  assert.match(
+    source,
+    /await navigateWithWorkspaceContext\(\s*buildAdminReadinessNavigationTarget\(workspace, \{\s*readinessFocus,\s*attentionOrganizationId,\s*\}\),\s*\);/s,
+  );
   assert.match(source, /router\.push\(buildWorkspaceNavigationHref\(options\.pathname, options\.searchParams\)\);/);
-  assert.match(source, /targetSurface === "go_live" \? "Open go-live drill" : "Open verification checklist"/);
-  assert.match(source, /pathname: "\/go-live\?surface=go_live"/);
+  assert.match(source, /const actionLabel = adminAttentionActionLabel\(targetSurface\);/);
 });
 
 test("Admin overview keeps direct admin-attention go-live queue entry and return cues explicit", async () => {
   const source = await readSource(adminOverviewPath);
 
   assert.match(source, /const targetSurface = workspace\.next_action_surface \?\? "verification";/);
-  assert.match(source, /source: "admin-attention",/);
-  assert.match(source, /surface: targetSurface,/);
-  assert.match(source, /run_id: workspace\.latest_demo_run_id \?\? null,/);
-  assert.match(source, /targetSurface === "go_live" \? "Open go-live drill" : "Open verification checklist"/);
+  assert.match(source, /adminAttentionActionLabel\(targetSurface\)/);
   assert.match(source, /<p className="font-medium">Admin queue focus restored<\/p>/);
   assert.match(source, /Continue the governance review from the filtered queue/);
   assert.match(source, /<Link[\s\S]*?>\s*Clear follow-up return\s*<\/Link>/s);

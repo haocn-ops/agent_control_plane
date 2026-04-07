@@ -18,6 +18,11 @@ import {
   buildWorkspaceNavigationHref,
   performWorkspaceSwitch,
 } from "@/lib/client-workspace-navigation";
+import {
+  adminAttentionActionLabel,
+  buildAdminAttentionNavigationTarget,
+  buildAdminReadinessNavigationTarget,
+} from "@/lib/admin-follow-up-navigation";
 import type {
   ControlPlaneAdminAttentionWorkspace,
   ControlPlaneAdminDeliveryWorkspace,
@@ -702,50 +707,16 @@ export function AdminOverviewPanel({
       recentOwnerEmail?: string | null;
     },
   ) => {
-    const targetSurface = workspace.next_action_surface ?? "verification";
-    await navigateWithWorkspaceContext({
-      workspaceSlug: workspace.slug,
-      pathname: targetSurface === "go_live" ? "/go-live" : "/verification",
-      searchParams: {
-        source: "admin-attention",
-        surface: targetSurface,
-        run_id: workspace.latest_demo_run_id ?? null,
-        attention_workspace: workspace.slug,
-        attention_organization: options?.attentionOrganizationId ?? null,
-        delivery_context: options?.deliveryContext ?? null,
-        recent_track_key: options?.recentTrackKey ?? null,
-        recent_update_kind: options?.recentUpdateKind ?? null,
-        evidence_count:
-          typeof options?.evidenceCount === "number" ? String(options.evidenceCount) : null,
-        recent_owner_label: options?.recentOwnerLabel ?? null,
-        recent_owner_display_name: options?.recentOwnerDisplayName ?? null,
-        recent_owner_email: options?.recentOwnerEmail ?? null,
-      },
-    });
+    await navigateWithWorkspaceContext(buildAdminAttentionNavigationTarget(workspace, options));
   };
 
   const handleReadinessAction = async (workspace: ControlPlaneAdminWeek8ReadinessWorkspace) => {
-    const targetSurface: AdminNavigationSurface = workspace.next_action_surface;
-    await navigateWithWorkspaceContext({
-      workspaceSlug: workspace.slug,
-      pathname:
-        targetSurface === "go_live"
-          ? "/go-live"
-          : targetSurface === "verification"
-            ? "/verification"
-            : targetSurface === "settings"
-              ? "/settings"
-              : "/onboarding",
-      searchParams: {
-        source: "admin-readiness",
-        surface:
-          targetSurface === "go_live" || targetSurface === "verification" ? targetSurface : null,
-        run_id: workspace.latest_demo_run_id ?? null,
-        week8_focus: readinessFocus,
-        attention_workspace: workspace.slug,
-        attention_organization: workspace.organization_id || attentionOrganizationId || null,
-      },
-    });
+    await navigateWithWorkspaceContext(
+      buildAdminReadinessNavigationTarget(workspace, {
+        readinessFocus,
+        attentionOrganizationId,
+      }),
+    );
   };
 
   const renderStatusRow = (label: string, counts: ControlPlaneDeliveryGovernance["verification"]) => (
@@ -1429,8 +1400,7 @@ export function AdminOverviewPanel({
               shownActionWorkspaces.map((workspace) => {
                 const targetSurface = (workspace.next_action_surface ?? "verification") as AdminNavigationSurface;
                 const actionDetail = surfaceActionInfo[targetSurface].detail;
-                const actionLabel =
-                  targetSurface === "go_live" ? "Open go-live drill" : "Open verification checklist";
+                const actionLabel = adminAttentionActionLabel(targetSurface);
                 const isSwitching = switchingWorkspace === workspace.slug;
                 const isHighlighted = attentionWorkspaceSlug === workspace.slug;
                 return (
@@ -1551,8 +1521,7 @@ export function AdminOverviewPanel({
                         <div className="mt-3 space-y-3">
                           {workspacesForOrg.map((workspace) => {
                             const targetSurface = workspace.next_action_surface ?? "verification";
-                            const actionLabel =
-                              targetSurface === "go_live" ? "Open go-live drill" : "Open verification checklist";
+                            const actionLabel = adminAttentionActionLabel(targetSurface);
                             const isSwitching = switchingWorkspace === workspace.slug;
                             const isHighlighted = attentionWorkspaceSlug === workspace.slug;
                             return (
@@ -1640,8 +1609,7 @@ export function AdminOverviewPanel({
               </div>
               {recentShownWorkspaces.map((workspace) => {
                 const targetSurface = (workspace.next_action_surface ?? "verification") as AdminNavigationSurface;
-                const actionLabel =
-                  targetSurface === "go_live" ? "Open go-live drill" : "Open verification checklist";
+                const actionLabel = adminAttentionActionLabel(targetSurface);
                 const actionDetail = surfaceActionInfo[targetSurface].detail;
                 const isSwitching = switchingWorkspace === workspace.slug;
                 const isHighlighted = attentionWorkspaceSlug === workspace.slug;
