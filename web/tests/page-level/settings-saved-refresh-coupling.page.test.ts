@@ -208,6 +208,23 @@ test("Settings panel keeps intent and billing follow-up cards coupled to source-
   assert.match(source, /:\s*\[[\s\S]*\{ label: "Continue to go-live drill", href: goLiveHref \}/s);
 });
 
+test("Settings panel keeps governance closure card aligned with billing warning routing", async () => {
+  const source = await readSource(settingsPanelPath);
+
+  assert.match(
+    source,
+    /label: billingSummary\?\.status_tone === "warning" \? "Resolve billing warning lane" : "Review plan and billing lane"/s,
+  );
+  assert.match(
+    source,
+    /href: billingSummary\?\.status_tone === "warning" \? resolveBillingIntentHref : managePlanIntentHref/s,
+  );
+  assert.match(
+    source,
+    /actions:\s*\[\s*\{\s*label: billingSummary\?\.status_tone === "warning" \? "Resolve billing warning lane" : "Review plan and billing lane",\s*href: billingSummary\?\.status_tone === "warning" \? resolveBillingIntentHref : managePlanIntentHref,\s*\},\s*\{ label: "Capture verification evidence", href: verificationHref \},\s*\{ label: "Rehearse go-live readiness", href: goLiveHref \},\s*\{ label: "Return to admin readiness view", href: adminReturnHref \},\s*\]/s,
+  );
+});
+
 test("Settings panel keeps audit export source-badge and cross-page evidence handoff semantics coupled", async () => {
   const source = await readSource(settingsPanelPath);
 

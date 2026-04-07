@@ -141,6 +141,10 @@ test("backend enterprise live-write paths keep admin access gate and idempotency
 
   assert.match(
     source,
+    /throw new ApiError\(403, "workspace_admin_required", actionLabel, \{\s*required_roles: \[\.\.\.WORKSPACE_MEMBER_MANAGER_ROLES\],\s*\}\);/,
+  );
+  assert.match(
+    source,
     /requireSaasWorkspaceAdminAccess\([\s\S]*?"Only workspace owners or admins can configure workspace SSO"[\s\S]*?\);/,
   );
   assert.match(

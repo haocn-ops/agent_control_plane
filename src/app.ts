@@ -910,7 +910,7 @@ function requireWorkspaceManagementRole(membership: WorkspaceMembershipRow, acti
     return;
   }
 
-  throw new ApiError(403, "tenant_access_denied", actionLabel, {
+  throw new ApiError(403, "workspace_admin_required", actionLabel, {
     required_roles: [...WORKSPACE_MEMBER_MANAGER_ROLES],
   });
 }

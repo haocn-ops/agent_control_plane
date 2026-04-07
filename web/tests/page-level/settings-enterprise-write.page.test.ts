@@ -52,6 +52,10 @@ test("Settings panel keeps idempotency conflict and access guidance copy", async
   );
   assert.match(
     source,
+    /if \(normalizedCode === "workspace_admin_required"\) \{\s*return `\$\{featureLabel\} configuration requires workspace owner or admin access\. Confirm your role and retry once the proper permissions are granted\.`;\s*\}/s,
+  );
+  assert.match(
+    source,
     /if \(error\.status === 401 \|\| error\.status === 403\) \{\s*return `\$\{featureLabel\} configuration requires workspace owner or admin access\. Confirm your role and retry once the proper permissions are granted\.`;/,
   );
 });

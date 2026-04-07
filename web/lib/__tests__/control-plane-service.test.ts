@@ -1246,10 +1246,10 @@ test("saveWorkspaceDedicatedEnvironmentReadiness keeps admin-access denial detai
     return new Response(
       JSON.stringify({
         error: {
-          code: "forbidden",
+          code: "workspace_admin_required",
           message: "Only workspace owners or admins can configure dedicated environment delivery",
           details: {
-            required_role: "workspace_owner",
+            required_roles: ["workspace_owner", "workspace_admin"],
             workspace_id: "ws_123",
           },
         },
@@ -1276,12 +1276,12 @@ test("saveWorkspaceDedicatedEnvironmentReadiness keeps admin-access denial detai
           return false;
         }
         assert.equal(error.status, 403);
-        assert.equal(error.code, "forbidden");
+        assert.equal(error.code, "workspace_admin_required");
         assert.equal(
           error.message,
           "Only workspace owners or admins can configure dedicated environment delivery",
         );
-        assert.equal(error.details.required_role, "workspace_owner");
+        assert.deepEqual(error.details.required_roles, ["workspace_owner", "workspace_admin"]);
         assert.equal(error.details.workspace_id, "ws_123");
         return true;
       },

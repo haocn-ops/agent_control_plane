@@ -777,6 +777,9 @@ function formatEnterpriseWriteError(
     if (normalizedCode === "idempotency_conflict") {
       return `${featureLabel} write was already submitted with a different payload. Refresh the form and retry once the desktop service confirms the previous save.`;
     }
+    if (normalizedCode === "workspace_admin_required") {
+      return `${featureLabel} configuration requires workspace owner or admin access. Confirm your role and retry once the proper permissions are granted.`;
+    }
     if (error.status === 401 || error.status === 403) {
       return `${featureLabel} configuration requires workspace owner or admin access. Confirm your role and retry once the proper permissions are granted.`;
     }
