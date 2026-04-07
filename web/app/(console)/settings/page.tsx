@@ -1,14 +1,27 @@
 import Link from "next/link";
 
-import { AdminFollowUpNotice } from "@/components/admin/admin-follow-up-notice";
+import { ConsoleAdminFollowUp } from "@/components/admin/console-admin-follow-up";
 import { WorkspaceContextSurfaceNotice } from "@/components/console/workspace-context-surface-notice";
 import { WorkspaceSettingsPanel } from "@/components/settings/workspace-settings-panel";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { buildConsoleHandoffHref, parseConsoleHandoffState } from "@/lib/console-handoff";
+import {
+  buildConsoleAdminReturnHref,
+  buildConsoleAdminReturnState,
+  buildConsoleRunAwareHandoffHref,
+  parseConsoleHandoffState,
+} from "@/lib/console-handoff";
+import { requestControlPlanePageData } from "@/lib/server-control-plane-page-fetch";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 type SettingsIntent = "upgrade" | "manage-plan" | "resolve-billing" | null;
+type WorkspaceDetailResponse = {
+  onboarding?: {
+    latest_demo_run?: {
+      run_id: string;
+    } | null;
+  };
+};
 
 function normalizeIntent(value: string | string[] | undefined): SettingsIntent {
   const candidate = Array.isArray(value) ? value[0] : value;
@@ -25,13 +38,29 @@ export default async function SettingsPage({
 }) {
   const workspaceContext = await resolveWorkspaceContextForServer();
   const handoff = parseConsoleHandoffState(searchParams);
+  const workspace = await requestControlPlanePageData<WorkspaceDetailResponse>("/api/control-plane/workspace");
+  const activeRunId = workspace?.onboarding?.latest_demo_run?.run_id ?? handoff.runId ?? null;
+  const runAwareHandoff = { ...handoff, runId: activeRunId };
   const highlightIntent = normalizeIntent(searchParams?.intent);
   const initialCheckoutSessionId = Array.isArray(searchParams?.checkout_session_id)
     ? searchParams?.checkout_session_id[0] ?? null
     : searchParams?.checkout_session_id ?? null;
-  const showReadinessHandoff = handoff.source === "admin-readiness";
-  const showAttentionHandoff = handoff.source === "admin-attention";
-  const buildSettingsPageHref = (pathname: string) => buildConsoleHandoffHref(pathname, handoff);
+  const adminReturnState = buildConsoleAdminReturnState({
+    source: handoff.source,
+    surface: handoff.surface,
+    expectedSurface: "verification",
+    recentTrackKey: handoff.recentTrackKey,
+  });
+  const adminReturnHref = buildConsoleAdminReturnHref({
+    pathname: "/admin",
+    handoff: runAwareHandoff,
+    workspaceSlug: workspaceContext.workspace.slug,
+    queueSurface: adminReturnState.adminQueueSurface,
+  });
+  const buildSettingsPageHref = (pathname: string) =>
+    buildConsoleRunAwareHandoffHref(pathname, handoff, activeRunId);
+  const adminHref = adminReturnState.showAdminReturn ? adminReturnHref : "/admin";
+  const adminLinkLabel = adminReturnState.showAdminReturn ? adminReturnState.adminReturnLabel : "Admin overview";
 
   return (
     <div className="space-y-8">
@@ -41,35 +70,13 @@ export default async function SettingsPage({
         surfaceLabel="Settings"
         sessionHref={buildSettingsPageHref("/session")}
       />
-      {showAttentionHandoff ? (
-        <AdminFollowUpNotice
-          source="admin-attention"
-          surface="settings"
-          workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoff.attentionWorkspace}
-          attentionOrganization={handoff.attentionOrganization}
-          deliveryContext={handoff.deliveryContext}
-          recentTrackKey={handoff.recentTrackKey}
-          recentUpdateKind={handoff.recentUpdateKind}
-          evidenceCount={handoff.evidenceCount}
-          ownerDisplayName={handoff.recentOwnerLabel}
-        />
-      ) : null}
-      {showReadinessHandoff ? (
-        <AdminFollowUpNotice
-          source="admin-readiness"
-          surface="settings"
-          workspaceSlug={workspaceContext.workspace.slug}
-          sourceWorkspaceSlug={handoff.attentionWorkspace}
-          week8Focus={handoff.week8Focus}
-          attentionOrganization={handoff.attentionOrganization}
-          deliveryContext={handoff.deliveryContext}
-          recentTrackKey={handoff.recentTrackKey}
-          recentUpdateKind={handoff.recentUpdateKind}
-          evidenceCount={handoff.evidenceCount}
-          ownerDisplayName={handoff.recentOwnerLabel}
-        />
-      ) : null}
+      <ConsoleAdminFollowUp
+        handoff={runAwareHandoff}
+        surface="settings"
+        workspaceSlug={workspaceContext.workspace.slug}
+        ownerDisplayName={runAwareHandoff.recentOwnerDisplayName ?? runAwareHandoff.recentOwnerLabel}
+        ownerEmail={runAwareHandoff.recentOwnerEmail}
+      />
       <PageHeader
         eyebrow="Settings"
         title="Workspace configuration"
@@ -110,10 +117,10 @@ export default async function SettingsPage({
               Rehearse go-live readiness
             </Link>
             <Link
-              href={buildSettingsPageHref("/admin")}
+              href={adminHref}
               className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-muted/60"
             >
-              Return to admin readiness view
+              {adminLinkLabel}
             </Link>
           </div>
         </CardContent>
@@ -123,6 +130,7 @@ export default async function SettingsPage({
         workspaceSlug={workspaceContext.workspace.slug}
         highlightIntent={highlightIntent}
         initialCheckoutSessionId={initialCheckoutSessionId}
+        runId={activeRunId}
         source={handoff.source}
         week8Focus={handoff.week8Focus}
         attentionWorkspace={handoff.attentionWorkspace}
@@ -132,6 +140,8 @@ export default async function SettingsPage({
         recentUpdateKind={handoff.recentUpdateKind}
         evidenceCount={handoff.evidenceCount}
         recentOwnerLabel={handoff.recentOwnerLabel}
+        recentOwnerDisplayName={handoff.recentOwnerDisplayName}
+        recentOwnerEmail={handoff.recentOwnerEmail}
       />
 
       <Card>
