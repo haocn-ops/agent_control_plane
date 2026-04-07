@@ -1,4 +1,9 @@
+import { proxyControlPlane } from "@/lib/control-plane-proxy";
+import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+
 import { buildProxyControlPlanePostInit } from "../post-route-helpers";
+
+const BILLING_BASE_PATH = "/api/v1/saas/workspaces";
 
 export function buildBillingGetProxyInit(): RequestInit {
   return {
@@ -11,5 +16,44 @@ export async function buildBillingPostProxyInit(request: Request): Promise<Reque
     request,
     accept: request.headers.get("accept") ?? undefined,
     contentType: request.headers.get("content-type") ?? undefined,
+  });
+}
+
+export function buildWorkspaceBillingPath(workspaceId: string, suffix: string): string {
+  return `${BILLING_BASE_PATH}/${workspaceId}/billing${suffix}`;
+}
+
+export async function proxyWorkspaceBillingGet(
+  suffix: string,
+  options?: {
+    resolveWorkspaceContext?: typeof resolveWorkspaceContextForServer;
+    proxy?: typeof proxyControlPlane;
+  },
+): Promise<Response> {
+  const resolveContext = options?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
+  const proxy = options?.proxy ?? proxyControlPlane;
+  const workspaceContext = await resolveContext();
+
+  return proxy(buildWorkspaceBillingPath(workspaceContext.workspace.workspace_id, suffix), {
+    init: buildBillingGetProxyInit(),
+  });
+}
+
+export async function proxyWorkspaceBillingPost(
+  request: Request,
+  suffix: string,
+  options?: {
+    resolveWorkspaceContext?: typeof resolveWorkspaceContextForServer;
+    proxy?: typeof proxyControlPlane;
+    initBuilder?: typeof buildBillingPostProxyInit;
+  },
+): Promise<Response> {
+  const resolveContext = options?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
+  const proxy = options?.proxy ?? proxyControlPlane;
+  const initBuilder = options?.initBuilder ?? buildBillingPostProxyInit;
+  const workspaceContext = await resolveContext();
+
+  return proxy(buildWorkspaceBillingPath(workspaceContext.workspace.workspace_id, suffix), {
+    init: await initBuilder(request),
   });
 }
