@@ -7,80 +7,16 @@ import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { performWorkspaceSwitch } from "@/lib/client-workspace-navigation";
 import {
-  buildWorkspaceNavigationHref,
-  performWorkspaceSwitch,
-} from "@/lib/client-workspace-navigation";
+  buildAcceptedWorkspaceOnboardingPath,
+  formatAcceptedInvitationRoleLabel,
+  getAcceptInvitationRoleLandingActions,
+  getAcceptInvitationRoleLaneSummary,
+  shouldContinueAcceptedWorkspaceSurfaceNavigation,
+  type AcceptedWorkspace,
+} from "@/lib/accept-invitation-success-flow";
 import { acceptWorkspaceInvitation, ControlPlaneRequestError } from "@/services/control-plane";
-
-type AcceptedWorkspace = {
-  workspace_slug: string;
-  display_name: string;
-  organization_display_name: string;
-  role: string;
-  owner_email: string | null;
-};
-
-type WorkspaceLandingAction = {
-  label: string;
-  path: string;
-};
-
-function formatRoleLabel(role: string): string {
-  return role.replaceAll("_", " ");
-}
-
-function getRoleLaneSummary(role: string): string {
-  if (role === "viewer" || role === "auditor") {
-    return "This role is usually focused on reading verification evidence, artifacts, and billing posture without changing workspace configuration.";
-  }
-  if (role === "operator") {
-    return "This role is usually focused on running the first demo flow, checking usage pressure, and keeping verification evidence current.";
-  }
-  if (role === "approver") {
-    return "This role is usually focused on reviewing the Week 8 checklist and the mock go-live drill before sign-off.";
-  }
-  if (role === "workspace_admin" || role === "workspace_owner") {
-    return "This role is usually focused on access, settings, credential readiness, and the overall first-run lane for the workspace.";
-  }
-  return "Use the recommended surfaces below to complete the first follow-up for this workspace.";
-}
-
-function getRoleLandingActions(role: string): WorkspaceLandingAction[] {
-  if (role === "viewer" || role === "auditor") {
-    return [
-      { label: "Open verification", path: "/verification?surface=verification" },
-      { label: "Review usage", path: "/usage" },
-      { label: "Inspect artifacts", path: "/artifacts" },
-    ];
-  }
-  if (role === "operator") {
-    return [
-      { label: "Run a demo", path: "/playground" },
-      { label: "Check usage", path: "/usage" },
-      { label: "Capture verification", path: "/verification?surface=verification" },
-    ];
-  }
-  if (role === "approver") {
-    return [
-      { label: "Open Week 8 checklist", path: "/verification?surface=verification" },
-      { label: "Review go-live drill", path: "/go-live?surface=go_live" },
-      { label: "Review usage", path: "/usage" },
-    ];
-  }
-  if (role === "workspace_admin" || role === "workspace_owner") {
-    return [
-      { label: "Confirm members", path: "/members" },
-      { label: "Review settings", path: "/settings" },
-      { label: "Check service accounts", path: "/service-accounts" },
-    ];
-  }
-  return [
-    { label: "Open members", path: "/members" },
-    { label: "Run a demo", path: "/playground" },
-    { label: "Open verification", path: "/verification?surface=verification" },
-  ];
-}
 
 function formatInvitationAcceptError(error: unknown): string {
   if (error instanceof ControlPlaneRequestError) {
@@ -145,42 +81,6 @@ function AcceptInvitationPageContent() {
     }
   }, [searchParams]);
 
-  function buildOnboardingPath(pathname: string): string {
-    if (!acceptedWorkspace) {
-      return pathname;
-    }
-
-    const continuityKeys = [
-      "run_id",
-      "week8_focus",
-      "attention_organization",
-      "delivery_context",
-      "recent_track_key",
-      "recent_update_kind",
-      "evidence_count",
-      "recent_owner_label",
-      "recent_owner_display_name",
-      "recent_owner_email",
-    ];
-    const continuitySearchParams = Object.fromEntries(
-      continuityKeys.map((key) => [key, searchParams.get(key)]),
-    ) satisfies Record<string, string | null>;
-
-    return buildWorkspaceNavigationHref(
-      pathname,
-      {
-        ...continuitySearchParams,
-        source: "onboarding",
-        attention_workspace: acceptedWorkspace.workspace_slug,
-        delivery_context: "recent_activity",
-        recent_owner_label: acceptedWorkspace.display_name,
-        recent_owner_display_name: acceptedWorkspace.display_name,
-        recent_owner_email: acceptedWorkspace.owner_email,
-      },
-      { preferExistingQuery: true },
-    );
-  }
-
   async function openWorkspaceSurface(pathname: string): Promise<void> {
     if (!acceptedWorkspace) {
       router.push(pathname);
@@ -194,7 +94,7 @@ function AcceptInvitationPageContent() {
           workspace_slug: acceptedWorkspace.workspace_slug,
         },
       });
-      if (outcome.status === "failed") {
+      if (!shouldContinueAcceptedWorkspaceSurfaceNavigation(outcome)) {
         setErrorMessage(outcome.error?.message ?? "Unable to switch workspace");
         return;
       }
@@ -277,7 +177,7 @@ function AcceptInvitationPageContent() {
                     Joined {acceptedWorkspace.organization_display_name} / {acceptedWorkspace.display_name}
                   </p>
                   <p className="mt-1 text-xs text-muted">
-                    Workspace role: {formatRoleLabel(acceptedWorkspace.role)}
+                    Workspace role: {formatAcceptedInvitationRoleLabel(acceptedWorkspace.role)}
                   </p>
                   <p className="mt-1 text-xs text-muted">
                     The actions below will switch your current workspace context to{" "}
@@ -290,16 +190,24 @@ function AcceptInvitationPageContent() {
                 <div className="rounded-2xl border border-border bg-background p-3 text-xs text-muted">
                   <p className="font-medium text-foreground">Role lane</p>
                   <p className="mt-1">
-                    {getRoleLaneSummary(acceptedWorkspace.role)}
+                    {getAcceptInvitationRoleLaneSummary(acceptedWorkspace.role)}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {getRoleLandingActions(acceptedWorkspace.role).map((action) => (
+                    {getAcceptInvitationRoleLandingActions(acceptedWorkspace.role).map((action) => (
                       <button
                         key={action.path}
                         type="button"
                         className="inline-flex items-center rounded-xl border border-border px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={isSwitchingWorkspace}
-                        onClick={() => void openWorkspaceSurface(buildOnboardingPath(action.path))}
+                        onClick={() =>
+                          void openWorkspaceSurface(
+                            buildAcceptedWorkspaceOnboardingPath({
+                              pathname: action.path,
+                              acceptedWorkspace,
+                              searchParams,
+                            }),
+                          )
+                        }
                       >
                         {isSwitchingWorkspace ? "Switching..." : action.label}
                       </button>
