@@ -44,6 +44,6 @@ test("launchpad session onboarding focused browser batch stays wired into script
   assert.match(executionPlan, /launchpad-session-onboarding/);
   assert.match(
     executionPlan,
-    /launchpad -> session -> onboarding -> usage -> settings -> verification -> go-live -> admin/,
+    /launchpad -> session -> onboarding -> usage -> \/settings\?intent=manage-plan -> verification -> go-live -> admin/,
   );
 });
