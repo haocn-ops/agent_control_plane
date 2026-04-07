@@ -47,24 +47,18 @@ test("Admin readiness overview keeps drill-down navigation-only continuity and r
 test("Admin attention queue and recent activity keep workspace/context continuity without impersonation semantics", async () => {
   const source = await readSource(adminOverviewPath);
 
+  assert.match(
+    source,
+    /import \{\s*adminAttentionActionLabel,\s*buildAdminAttentionNavigationTarget,\s*buildAdminReadinessNavigationTarget,\s*\} from "@\/lib\/admin-follow-up-navigation";/s,
+  );
   assert.match(source, /const handleAction = async \(/);
-  assert.match(source, /source: "admin-attention",/);
-  assert.match(source, /surface: targetSurface,/);
-  assert.match(source, /run_id: workspace\.latest_demo_run_id \?\? null,/);
-  assert.match(source, /attention_workspace: workspace\.slug,/);
-  assert.match(source, /attention_organization: options\?\.attentionOrganizationId \?\? null,/);
-  assert.match(source, /delivery_context: options\?\.deliveryContext \?\? null,/);
-  assert.match(source, /recent_track_key: options\?\.recentTrackKey \?\? null,/);
-  assert.match(source, /recent_update_kind: options\?\.recentUpdateKind \?\? null,/);
-  assert.match(source, /recent_owner_display_name: options\?\.recentOwnerDisplayName \?\? null,/);
-  assert.match(source, /recent_owner_email: options\?\.recentOwnerEmail \?\? null,/);
+  assert.match(source, /await navigateWithWorkspaceContext\(buildAdminAttentionNavigationTarget\(workspace, options\)\);/);
 
   assert.match(source, /const handleReadinessAction = async \(workspace: ControlPlaneAdminWeek8ReadinessWorkspace\) => \{/);
-  assert.match(source, /source: "admin-readiness",/);
-  assert.match(source, /week8_focus: readinessFocus,/);
-  assert.match(source, /run_id: workspace\.latest_demo_run_id \?\? null,/);
-  assert.match(source, /attention_workspace: workspace\.slug,/);
-  assert.match(source, /attention_organization: workspace\.organization_id \|\| attentionOrganizationId \|\| null,/);
+  assert.match(
+    source,
+    /await navigateWithWorkspaceContext\(\s*buildAdminReadinessNavigationTarget\(workspace, \{\s*readinessFocus,\s*attentionOrganizationId,\s*\}\),\s*\);/s,
+  );
 
   assert.match(source, /<p className="font-medium">Admin queue focus restored<\/p>/);
   assert.match(source, /Continue the governance review from the filtered queue/);
