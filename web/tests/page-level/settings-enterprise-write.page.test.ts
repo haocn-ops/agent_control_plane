@@ -319,6 +319,7 @@ test("Settings panel keeps submit-payload and saved-sections coupling contract f
   assert.match(source, /client_id: ssoDraft\.protocol === "oidc" && entityId \? entityId : null/);
   assert.match(source, /audience: ssoDraft\.protocol === "saml" && entityId \? entityId : null/);
   assert.match(source, /metadata_url: ssoDraft\.metadataUrl\.trim\(\)/);
+  assert.match(source, /const ssoConfiguredSigningCertificate = readString\(ssoReadiness\?\.signing_certificate\);/);
   assert.match(source, /const ssoConfiguredDomains = normalizeDomainList\(\[/);
   assert.match(source, /ssoReadiness\?\.email_domains/);
   assert.match(source, /ssoReadiness\?\.email_domain/);
@@ -328,6 +329,7 @@ test("Settings panel keeps submit-payload and saved-sections coupling contract f
   );
   assert.match(source, /ssoReadiness\?\.metadata_url \?\? "Not saved"/);
   assert.match(source, /ssoReadiness\?\.entrypoint_url \?\? "Not saved"/);
+  assert.match(source, /ssoConfiguredSigningCertificate \?\? "Not saved"/);
 
   // Dedicated submit payload fields must stay coupled with saved provisioning request fields.
   assert.match(source, /requester_email: requesterEmail \|\| null/);

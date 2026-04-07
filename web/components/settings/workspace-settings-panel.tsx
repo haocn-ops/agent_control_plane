@@ -1182,6 +1182,7 @@ export function WorkspaceSettingsPanel({
   const ssoConfiguredIdentity = readString(
     ssoReadiness?.provider_type === "saml" ? ssoReadiness?.audience : ssoReadiness?.client_id,
   );
+  const ssoConfiguredSigningCertificate = readString(ssoReadiness?.signing_certificate);
   const ssoNextSteps = ssoReadiness?.next_steps ?? [
     "Upgrade to a plan with SSO support.",
     "Choose OIDC or SAML as the connection protocol.",
@@ -2327,6 +2328,12 @@ export function WorkspaceSettingsPanel({
                   <p className="text-xs text-muted">Entrypoint URL</p>
                   <p className="mt-1 text-sm font-medium text-foreground">
                     {ssoReadiness?.entrypoint_url ?? "Not saved"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-card p-3 sm:col-span-2">
+                  <p className="text-xs text-muted">Signing certificate</p>
+                  <p className="mt-1 text-sm font-medium text-foreground">
+                    {ssoConfiguredSigningCertificate ?? "Not saved"}
                   </p>
                 </div>
               </div>

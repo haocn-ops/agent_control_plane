@@ -97,6 +97,7 @@ test("Settings panel keeps enterprise saved-configuration contracts for SSO and 
   assert.match(source, /Saved configuration/);
   assert.match(source, /Configured domains/);
   assert.match(source, /Entrypoint URL/);
+  assert.match(source, /Signing certificate/);
 
   assert.match(source, /\{dedicatedConfigured \? \(/);
   assert.match(source, /Saved provisioning request/);
