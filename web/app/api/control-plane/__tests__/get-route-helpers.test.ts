@@ -21,6 +21,8 @@ test("proxyMetadataGet returns injected metadata guard response before proxying"
             is_fallback: true,
             local_only: true,
             warning: "fallback",
+            session_checkpoint_required: true,
+            checkpoint_label: "Session checkpoint required",
           },
           session_user: null,
           workspace: {
@@ -68,6 +70,8 @@ test("proxyMetadataGet forwards path and includeTenant through injected proxy", 
             is_fallback: false,
             local_only: false,
             warning: null,
+            session_checkpoint_required: false,
+            checkpoint_label: "Trusted metadata session",
           },
           session_user: null,
           workspace: {

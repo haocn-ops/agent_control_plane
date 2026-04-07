@@ -159,6 +159,8 @@ test("proxyWorkspaceEnterprisePost returns metadata guard response before proxyi
             is_fallback: true,
             local_only: true,
             warning: "preview",
+            session_checkpoint_required: true,
+            checkpoint_label: "Session checkpoint required",
           },
           session_user: null,
           workspace: {
@@ -205,7 +207,14 @@ test("proxyWorkspaceEnterprisePost forwards metadata-backed writes through injec
       resolveWorkspaceContext: async () =>
         ({
           source: "metadata",
-          source_detail: { label: "SaaS metadata", is_fallback: false, local_only: false, warning: null },
+          source_detail: {
+            label: "SaaS metadata",
+            is_fallback: false,
+            local_only: false,
+            warning: null,
+            session_checkpoint_required: false,
+            checkpoint_label: "Trusted metadata session",
+          },
           session_user: null,
           workspace: {
             workspace_id: "ws_123",
