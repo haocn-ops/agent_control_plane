@@ -7,9 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { WorkspaceContext } from "@/lib/workspace-context";
 import { fetchSession } from "@/services/control-plane";
+import { buildConsoleHandoffHref, type ConsoleHandoffState } from "@/lib/console-handoff";
 
 type SessionAccessPanelProps = {
   workspaceContext: WorkspaceContext;
+  handoff: ConsoleHandoffState;
 };
 
 type SessionLane = {
@@ -141,11 +143,15 @@ function getContextRisks(args: {
   return risks;
 }
 
-export function SessionAccessPanel({ workspaceContext }: SessionAccessPanelProps) {
+export function SessionAccessPanel({ workspaceContext, handoff }: SessionAccessPanelProps) {
   const sessionQuery = useQuery({
     queryKey: ["session-access"],
     queryFn: fetchSession,
   });
+
+  const settingsAuditExportHref = buildConsoleHandoffHref("/settings?intent=upgrade", handoff);
+  const verificationEvidenceHref = buildConsoleHandoffHref("/verification?surface=verification", handoff);
+  const goLiveLaneHref = buildConsoleHandoffHref("/go-live?surface=go_live", handoff);
 
   const sessionUser = sessionQuery.data?.user ?? workspaceContext.session_user;
   const accessibleWorkspaces =
@@ -159,6 +165,8 @@ export function SessionAccessPanel({ workspaceContext }: SessionAccessPanelProps
         }));
   const currentRoleSummary = summarizeRole(workspaceContext.workspace.subject_roles);
   const lane = roleAwareLane(workspaceContext.workspace.subject_roles);
+  const lanePrimaryHref = buildConsoleHandoffHref(lane.primaryHref, handoff);
+  const laneSecondaryHref = buildConsoleHandoffHref(lane.secondaryHref, handoff);
   const accessibleWorkspaceSlugs = accessibleWorkspaces.map((workspace) => workspace.slug);
   const contextRisks = getContextRisks({
     currentWorkspaceSlug: workspaceContext.workspace.slug,
@@ -242,17 +250,49 @@ export function SessionAccessPanel({ workspaceContext }: SessionAccessPanelProps
             </p>
           </div>
           <div className="rounded-2xl border border-border bg-background p-4 text-xs text-muted">
+            <p className="font-medium text-foreground">Audit export continuity</p>
+            <p className="mt-1">
+              Trusted metadata sessions should reuse the same Latest export receipt from /settings (filename, filters,
+              SHA-256) before moving into verification, artifacts, or the go-live lane so the downstream evidence chain
+              stays tied to one manual thread.
+            </p>
+            <p className="mt-2">
+              Navigation-only manual relay: these links keep the workspace context intact but do not auto-attach the audit
+              export or resolve rollout steps for you.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={settingsAuditExportHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Reopen audit export receipt
+              </Link>
+              <Link
+                href={verificationEvidenceHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Continue to verification evidence
+              </Link>
+              <Link
+                href={goLiveLaneHref}
+                className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
+              >
+                Reopen go-live lane
+              </Link>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-background p-4 text-xs text-muted">
             <p className="font-medium text-foreground">{lane.title}</p>
             <p className="mt-1">{lane.description}</p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Link
-                href={lane.primaryHref}
+                href={lanePrimaryHref}
                 className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 font-medium text-foreground transition hover:bg-background"
               >
                 {lane.primaryLabel}
               </Link>
               <Link
-                href={lane.secondaryHref}
+                href={laneSecondaryHref}
                 className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 font-medium text-foreground transition hover:bg-card"
               >
                 {lane.secondaryLabel}
