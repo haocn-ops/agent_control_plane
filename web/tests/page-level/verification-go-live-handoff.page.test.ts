@@ -75,6 +75,8 @@ test("Verification page keeps explicit go_live continuation link contract", asyn
 
   assert.match(source, /import \{ buildVerificationChecklistHandoffHref \} from "@\/lib\/handoff-query";/);
   assert.match(source, /<CardTitle>Verification evidence lane<\/CardTitle>/);
+  assert.match(source, /buildVerificationChecklistHandoffHref\(\{ pathname: "\/settings\?intent=manage-plan", \.\.\.handoffHrefArgs \}\)/);
+  assert.match(source, />\s*Review settings \+ billing\s*<\/Link>/);
   assert.match(source, /buildVerificationChecklistHandoffHref\(\{ pathname: "\/go-live\?surface=go_live", \.\.\.handoffHrefArgs \}\)/);
   assert.match(source, />\s*Continue to go-live drill\s*<\/Link>/);
   assert.match(checklistSource, /<CardTitle>Latest demo run context<\/CardTitle>/);
@@ -104,7 +106,7 @@ test("Go-live page keeps console handoff helper contract and explicit surface qu
 
   assert.match(
     source,
-    /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleAdminReturnState,\s*buildConsoleHandoffHref,\s*buildConsoleRunAwareHandoffHref,\s*buildRecentDeliveryDescription,\s*buildRecentDeliveryMetadata,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
+    /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleAdminReturnState,\s*buildConsoleRunAwareHandoffHref,\s*buildRecentDeliveryDescription,\s*buildRecentDeliveryMetadata,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
   );
   assert.match(source, /import \{ requestControlPlanePageData \} from "@\/lib\/server-control-plane-page-fetch";/);
   assert.match(source, /const handoff = parseConsoleHandoffState\(searchParams\);/);
@@ -118,9 +120,12 @@ test("Go-live page keeps console handoff helper contract and explicit surface qu
   );
   assert.match(source, /const verificationHref = buildConsoleRunAwareHandoffHref\("\/verification\?surface=verification", handoff, activeRunId\);/);
   assert.match(source, /const usageHref = buildConsoleRunAwareHandoffHref\("\/usage", handoff, activeRunId\);/);
-  assert.match(source, /const settingsHref = buildConsoleRunAwareHandoffHref\("\/settings", handoff, activeRunId\);/);
+  assert.match(source, /const billingSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=manage-plan", handoff, activeRunId\);/);
+  assert.match(source, /const upgradeSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=upgrade", handoff, activeRunId\);/);
   assert.match(source, /const playgroundHref = buildConsoleRunAwareHandoffHref\("\/playground", handoff, activeRunId\);/);
   assert.match(source, /const artifactsHref = buildConsoleRunAwareHandoffHref\("\/artifacts", handoff, activeRunId\);/);
+  assert.match(source, /href=\{billingSettingsHref\}[\s\S]*?>\s*Review billing \+ settings\s*<\/Link>/s);
+  assert.match(source, /href=\{upgradeSettingsHref\}[\s\S]*?> Settings upgrade intent<\/Link>/s);
   assert.match(
     source,
     /<WorkspaceDeliveryTrackPanel[\s\S]*runId=\{activeRunId\}[\s\S]*recentOwnerLabel=\{recentOwnerLabel\}[\s\S]*recentOwnerDisplayName=\{recentOwnerDisplayName\}[\s\S]*recentOwnerEmail=\{recentOwnerEmail\}[\s\S]*auditReceiptFilename=\{handoff\.auditReceiptFilename\}[\s\S]*auditReceiptExportedAt=\{handoff\.auditReceiptExportedAt\}[\s\S]*auditReceiptSha256=\{handoff\.auditReceiptSha256\}/,

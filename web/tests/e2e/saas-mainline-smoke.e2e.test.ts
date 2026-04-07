@@ -751,9 +751,23 @@ test(
       assert.match(settingsSource, /import \{ buildAdminReturnHref, buildHandoffHref \} from "@\/lib\/handoff-query";/);
       assert.match(
         goLiveSource,
-        /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleAdminReturnState,\s*buildConsoleHandoffHref,\s*buildConsoleRunAwareHandoffHref,\s*buildRecentDeliveryDescription,\s*buildRecentDeliveryMetadata,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
+        /import \{\s*buildConsoleAdminReturnHref,\s*buildConsoleAdminReturnState,\s*buildConsoleRunAwareHandoffHref,\s*buildRecentDeliveryDescription,\s*buildRecentDeliveryMetadata,\s*parseConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
       );
       assert.match(goLiveSource, /import \{ requestControlPlanePageData \} from "@\/lib\/server-control-plane-page-fetch";/);
+      assert.match(
+        goLiveSource,
+        /const billingSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=manage-plan", handoff, activeRunId\);/,
+      );
+      assert.match(
+        goLiveSource,
+        /const upgradeSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=upgrade", handoff, activeRunId\);/,
+      );
+      assert.match(goLiveSource, /href=\{billingSettingsHref\}[\s\S]*Review billing \+ settings/s);
+      assert.match(goLiveSource, /href=\{upgradeSettingsHref\}[\s\S]*Settings upgrade intent/s);
+      assert.match(
+        verificationSource,
+        /buildVerificationChecklistHandoffHref\(\{\s*pathname: "\/settings\?intent=manage-plan",\s*\.\.\.handoffHrefArgs\s*\}\)/s,
+      );
       assert.match(
         deliveryPanelSource,
         /import \{\s*buildConsoleHandoffHref,\s*buildConsoleAdminReturnHref,\s*type ConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,

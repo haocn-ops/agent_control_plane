@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   buildConsoleAdminReturnHref,
   buildConsoleAdminReturnState,
-  buildConsoleHandoffHref,
   buildConsoleRunAwareHandoffHref,
   buildRecentDeliveryDescription,
   buildRecentDeliveryMetadata,
@@ -57,7 +56,8 @@ export default async function GoLivePage({
   );
   const verificationHref = buildConsoleRunAwareHandoffHref("/verification?surface=verification", handoff, activeRunId);
   const usageHref = buildConsoleRunAwareHandoffHref("/usage", handoff, activeRunId);
-  const settingsHref = buildConsoleRunAwareHandoffHref("/settings", handoff, activeRunId);
+  const billingSettingsHref = buildConsoleRunAwareHandoffHref("/settings?intent=manage-plan", handoff, activeRunId);
+  const upgradeSettingsHref = buildConsoleRunAwareHandoffHref("/settings?intent=upgrade", handoff, activeRunId);
   const playgroundHref = buildConsoleRunAwareHandoffHref("/playground", handoff, activeRunId);
   const artifactsHref = buildConsoleRunAwareHandoffHref("/artifacts", handoff, activeRunId);
   const adminReturnHref = buildConsoleAdminReturnHref({
@@ -136,7 +136,7 @@ export default async function GoLivePage({
               Confirm usage posture
             </Link>
             <Link
-              href={settingsHref}
+              href={billingSettingsHref}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Review billing + settings
@@ -179,7 +179,7 @@ export default async function GoLivePage({
           </p>
           <p className="text-xs text-muted">
             After downloading the latest audit export receipt/evidence note (filename, filters, SHA-256) through the
-            <Link href={settingsHref}> Settings upgrade intent</Link>, copy that note into Verification's evidence lane
+            <Link href={upgradeSettingsHref}> Settings upgrade intent</Link>, copy that note into Verification's evidence lane
             (<Link href={verificationHref}>explicit verification surface</Link>) and into the go-live drill entries so the
             governance trail remains manually stitched across these navigation-only surfaces.
           </p>

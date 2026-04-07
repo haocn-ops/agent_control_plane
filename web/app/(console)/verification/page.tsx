@@ -130,7 +130,7 @@ export default async function VerificationPage({
               Confirm usage signal
             </Link>
             <Link
-              href={buildVerificationChecklistHandoffHref({ pathname: "/settings", ...handoffHrefArgs })}
+              href={buildVerificationChecklistHandoffHref({ pathname: "/settings?intent=manage-plan", ...handoffHrefArgs })}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
             >
               Review settings + billing
