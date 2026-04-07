@@ -31,7 +31,7 @@ test("usage dashboard keeps audit export continuity lane explicit", async () => 
   );
   assert.match(source, /const verificationHref = buildRunAwareUsageHref\("\/verification\?surface=verification"\);/);
   assert.match(source, /const artifactsHref = buildRunAwareUsageHref\("\/artifacts"\);/);
-  assert.match(source, /const settingsHref = buildRunAwareUsageHref\("\/settings"\);/);
+  assert.match(source, /const settingsHref = buildRunAwareUsageHref\("\/settings\?intent=manage-plan"\);/);
   assert.match(source, /const settingsUpgradeHref = buildRunAwareUsageHref\("\/settings\?intent=upgrade"\);/);
   assert.match(source, /const adminHref = buildAdminReturnHref\("\/admin", \{/);
   assert.match(

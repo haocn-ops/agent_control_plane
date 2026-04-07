@@ -409,7 +409,7 @@ export function WorkspaceUsageDashboard({
   const billingActionHref = billingSummary?.action?.href ?? "/settings?intent=manage-plan";
   const verificationHref = buildRunAwareUsageHref("/verification?surface=verification");
   const artifactsHref = buildRunAwareUsageHref("/artifacts");
-  const settingsHref = buildRunAwareUsageHref("/settings");
+  const settingsHref = buildRunAwareUsageHref("/settings?intent=manage-plan");
   const settingsUpgradeHref = buildRunAwareUsageHref("/settings?intent=upgrade");
   const adminHref = buildAdminReturnHref("/admin", {
     source: normalizedSource,
