@@ -14,6 +14,7 @@ async function readSource(filePath: string): Promise<string> {
 test("settings panel keeps checkout/portal action error narratives aligned", async () => {
   const source = await readSource(settingsPanelPath);
 
+  assert.match(source, /function formatPortalActionError\(error: unknown\): string \{/);
   assert.match(
     source,
     /if \(args\.action === "complete" \&\& \(isStripeBillingProvider\(args\.providerCode\) \|\| normalizedCode\.includes\("webhook"\)\)\) \{\s*return `\$\{providerLabel\} finalizes completion after checkout\. Use Refresh session after payment to sync status\.`;/s,
@@ -33,6 +34,10 @@ test("settings panel keeps checkout/portal action error narratives aligned", asy
   assert.match(
     source,
     /normalizedCode === "billing_provider_portal_unimplemented"\)\s*\{\s*return "This provider-managed portal flow is not available yet for the current billing provider\.";/s,
+  );
+  assert.match(
+    source,
+    /if \(error\.message\) \{\s*return error\.message;\s*\}\s*\}\s*if \(error instanceof Error && error\.message\) \{\s*return error\.message;\s*\}\s*return "Unable to open billing portal\.";/s,
   );
 });
 
