@@ -125,7 +125,7 @@ test("Usage dashboard keeps explicit verification surface links coupled to share
   );
   assert.match(source, /const verificationHref = buildRunAwareUsageHref\("\/verification\?surface=verification"\);/);
   assert.match(source, /const artifactsHref = buildRunAwareUsageHref\("\/artifacts"\);/);
-  assert.match(source, /const settingsHref = buildRunAwareUsageHref\("\/settings"\);/);
+  assert.match(source, /const settingsHref = buildRunAwareUsageHref\("\/settings\?intent=manage-plan"\);/);
   assert.match(source, /href=\{verificationHref\}[\s\S]*Capture verification evidence/);
   assert.match(source, /href=\{verificationHref\}[\s\S]*Reopen verification evidence/);
   assert.match(source, /href=\{buildRunAwareUsageHref\(action\.path\)\}/);

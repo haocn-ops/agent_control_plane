@@ -117,7 +117,7 @@ test("source-contract(slot-a): playground + usage handoff href builders delegate
     /const verificationHref = buildRunAwareUsageHref\("\/verification\?surface=verification"\);/,
   );
   assert.match(usageSource, /const artifactsHref = buildRunAwareUsageHref\("\/artifacts"\);/);
-  assert.match(usageSource, /const settingsHref = buildRunAwareUsageHref\("\/settings"\);/);
+  assert.match(usageSource, /const settingsHref = buildRunAwareUsageHref\("\/settings\?intent=manage-plan"\);/);
   assert.match(usageSource, /const settingsUpgradeHref = buildRunAwareUsageHref\("\/settings\?intent=upgrade"\);/);
   assert.match(usageSource, /buildRunAwareUsageHref\(action\.path\)/);
   assert.match(usageSource, /href=\{verificationHref\}[\s\S]*Capture verification evidence/s);
