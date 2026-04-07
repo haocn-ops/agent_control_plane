@@ -411,6 +411,10 @@ function formatTokenLabel(value?: string | null): string {
   return value.replace(/[_-]/g, " ");
 }
 
+function hasWorkspaceManagementRole(role?: string | null): boolean {
+  return role === "workspace_owner" || role === "workspace_admin";
+}
+
 function isLikelyHttpsUrl(value: string): boolean {
   const raw = value.trim();
   if (!raw) {
@@ -1027,6 +1031,8 @@ export function WorkspaceSettingsPanel({
   );
 
   const workspace = data?.workspace;
+  const workspaceRole = workspace?.membership.role ?? null;
+  const hasEnterpriseWriteAccess = hasWorkspaceManagementRole(workspaceRole);
   const plan = data?.plan;
   const billingSummary = data?.billing_summary;
   const billingProviders = data?.billing_providers;
@@ -1232,6 +1238,8 @@ export function WorkspaceSettingsPanel({
   const ssoPreflightReady = ssoValidationErrors.length === 0;
   const ssoSubmitDisabledReason = ssoWriteState.submitting
     ? "Submitting SSO configuration..."
+    : !hasEnterpriseWriteAccess
+      ? "SSO configuration requires workspace owner or admin access before controlled live write is enabled."
     : !ssoFeatureEnabled
       ? "SSO write flow is locked until plan upgrade."
       : !ssoPreflightReady
@@ -1255,6 +1263,8 @@ export function WorkspaceSettingsPanel({
   const dedicatedPreflightReady = dedicatedValidationErrors.length === 0;
   const dedicatedSubmitDisabledReason = dedicatedWriteState.submitting
     ? "Submitting dedicated-environment intake..."
+    : !hasEnterpriseWriteAccess
+      ? "Dedicated environment configuration requires workspace owner or admin access before controlled live write is enabled."
     : !dedicatedEnvironmentFeatureEnabled
       ? "Dedicated environment write flow is locked until plan upgrade."
       : !dedicatedPreflightReady
@@ -2455,6 +2465,12 @@ export function WorkspaceSettingsPanel({
             <p className="mt-2 text-xs text-muted">
               Submit status: {ssoSubmitDisabledReason ?? "Ready for controlled live write."}
             </p>
+            {!hasEnterpriseWriteAccess ? (
+              <p className="mt-2 text-xs text-muted">
+                Current workspace role: <span className="text-foreground">{formatTokenLabel(workspaceRole)}</span>.
+                Coordinate the final SSO controlled live write with a workspace owner or admin.
+              </p>
+            ) : null}
             {!ssoPreflightReady ? (
               <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
                 {ssoValidationErrors.map((line) => (
@@ -2841,6 +2857,12 @@ export function WorkspaceSettingsPanel({
             <p className="mt-2 text-xs text-muted">
               Submit status: {dedicatedSubmitDisabledReason ?? "Ready for controlled live write."}
             </p>
+            {!hasEnterpriseWriteAccess ? (
+              <p className="mt-2 text-xs text-muted">
+                Current workspace role: <span className="text-foreground">{formatTokenLabel(workspaceRole)}</span>.
+                Coordinate the final dedicated-environment controlled live write with a workspace owner or admin.
+              </p>
+            ) : null}
             {!dedicatedPreflightReady ? (
               <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted">
                 {dedicatedValidationErrors.map((line) => (

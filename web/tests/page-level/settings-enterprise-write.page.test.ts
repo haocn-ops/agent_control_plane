@@ -180,8 +180,18 @@ test("Settings panel keeps dedicated-environment submit path, payload, and refre
 test("Settings panel keeps enterprise preflight and submit-status guidance semantics", async () => {
   const source = await readSource(settingsPanelPath);
 
+  assert.match(source, /function hasWorkspaceManagementRole\(role\?: string \| null\): boolean \{/);
+  assert.match(source, /return role === "workspace_owner" \|\| role === "workspace_admin";/);
   assert.match(source, /SSO write flow is locked until plan upgrade\./);
   assert.match(source, /Dedicated environment write flow is locked until plan upgrade\./);
+  assert.match(
+    source,
+    /SSO configuration requires workspace owner or admin access before controlled live write is enabled\./,
+  );
+  assert.match(
+    source,
+    /Dedicated environment configuration requires workspace owner or admin access before controlled live write is enabled\./,
+  );
   assert.match(source, /Submit status: \{ssoSubmitDisabledReason \?\? "Ready for controlled live write\."\}/);
   assert.match(
     source,
@@ -189,6 +199,12 @@ test("Settings panel keeps enterprise preflight and submit-status guidance seman
   );
   assert.match(source, /SSO preflight is ready\./);
   assert.match(source, /Dedicated environment preflight is ready\./);
+  assert.match(source, /Current workspace role:/);
+  assert.match(source, /Coordinate the final SSO controlled live write with a workspace owner or admin\./);
+  assert.match(
+    source,
+    /Coordinate the final dedicated-environment controlled live write with a workspace owner or admin\./,
+  );
 });
 
 test("Settings panel resets submit-state feedback when SSO and dedicated drafts change", async () => {
