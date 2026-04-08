@@ -12,6 +12,39 @@ const docsReadmePath = path.resolve(webDir, "../docs/README.md");
 const executionPlanPath = path.resolve(webDir, "../docs/saas_v1_execution_plan_zh.md");
 const browserSpecPath = "tests/browser/launchpad-audit-export-verification-admin-return.smoke.spec.ts";
 
+const smokeExpectations = [
+  {
+    path: browserSpecPath,
+    requiredPatterns: [
+      /launchpad audit export -> verification -> admin keeps readiness continuity/,
+      /\/\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /SaaS Workspace Launch Hub/,
+      /Audit export continuity/,
+      /Carry proof to verification/,
+      /\/verification\\\?/,
+      /surface=verification/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_demo/,
+      /recent_track_key=verification/,
+      /recent_update_kind=verification/,
+      /evidence_count=2/,
+      /recent_owner_display_name=Avery(?:%20|\\\+)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+      /Week 8 launch checklist/,
+      /Verification evidence lane/,
+      /Admin follow-up context/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /SaaS admin overview/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+    ],
+  },
+] as const;
+
 test("launchpad audit-export focused browser batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -45,19 +78,12 @@ test("launchpad audit-export focused browser batch stays wired into scripts and 
   assert.match(executionPlan, /launchpad root.*verification.*admin/);
 });
 
-test("launchpad audit-export focused browser batch keeps smoke continuity explicit", async () => {
-  const source = await readFile(path.resolve(webDir, browserSpecPath), "utf8");
+for (const spec of smokeExpectations) {
+  test(`launchpad audit-export focused browser batch keeps ${spec.path} explicit without overstating coverage`, async () => {
+    const source = await readFile(path.resolve(webDir, spec.path), "utf8");
 
-  assert.match(source, /launchpad audit export -> verification -> admin keeps readiness continuity/);
-  assert.match(source, /SaaS Workspace Launch Hub/);
-  assert.match(source, /Audit export continuity/);
-  assert.match(source, /Carry proof to verification/);
-  assert.match(source, /Return to admin readiness view/);
-  assert.match(source, /recent_owner_display_name=Avery(?:%20|\\\+)Ops/);
-  assert.match(source, /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/);
-  assert.match(source, /Week 8 launch checklist/);
-  assert.match(source, /Verification evidence lane/);
-  assert.match(source, /readiness_returned=1/);
-  assert.match(source, /Returned from Week 8 readiness/);
-  assert.match(source, /Focus restored/);
-});
+    for (const pattern of spec.requiredPatterns) {
+      assert.match(source, pattern);
+    }
+  });
+}
