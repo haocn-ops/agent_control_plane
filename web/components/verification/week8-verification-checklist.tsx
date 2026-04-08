@@ -617,9 +617,12 @@ export function Week8VerificationChecklist({
             >
               Reopen audit export receipt
             </Link>
-            <span className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground">
+            <Link
+              href="#verification-delivery-track"
+              className="inline-flex items-center rounded-xl border border-border bg-card px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background"
+            >
               Review delivery tracking below
-            </span>
+            </Link>
           </div>
           <p className="text-xs text-muted">
             These links only preserve workspace context and do not automate or impersonate any step; keep the copied evidence

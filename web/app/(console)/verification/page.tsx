@@ -178,30 +178,32 @@ export default async function VerificationPage({
         auditReceiptToDate={handoff.auditReceiptToDate}
         auditReceiptSha256={handoff.auditReceiptSha256}
       />
-      <WorkspaceDeliveryTrackPanel
-        workspaceSlug={workspaceContext.workspace.slug}
-        sectionKey="verification"
-        title="Verification delivery notes"
-        description={verificationDeliveryDescription}
-        source={handoff.source}
-        surface="verification"
-        runId={activeRunId}
-        week8Focus={handoff.week8Focus}
-        attentionWorkspace={handoff.attentionWorkspace}
-        attentionOrganization={handoff.attentionOrganization}
-        deliveryContext={handoff.deliveryContext}
-        recentTrackKey={handoff.recentTrackKey}
-        recentUpdateKind={handoff.recentUpdateKind}
-        evidenceCount={handoff.evidenceCount}
-        recentOwnerLabel={handoff.recentOwnerLabel}
-        recentOwnerDisplayName={handoff.recentOwnerDisplayName}
-        recentOwnerEmail={handoff.recentOwnerEmail}
-        auditReceiptFilename={handoff.auditReceiptFilename}
-        auditReceiptExportedAt={handoff.auditReceiptExportedAt}
-        auditReceiptFromDate={handoff.auditReceiptFromDate}
-        auditReceiptToDate={handoff.auditReceiptToDate}
-        auditReceiptSha256={handoff.auditReceiptSha256}
-      />
+      <div id="verification-delivery-track">
+        <WorkspaceDeliveryTrackPanel
+          workspaceSlug={workspaceContext.workspace.slug}
+          sectionKey="verification"
+          title="Verification delivery notes"
+          description={verificationDeliveryDescription}
+          source={handoff.source}
+          surface="verification"
+          runId={activeRunId}
+          week8Focus={handoff.week8Focus}
+          attentionWorkspace={handoff.attentionWorkspace}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
+          recentTrackKey={handoff.recentTrackKey}
+          recentUpdateKind={handoff.recentUpdateKind}
+          evidenceCount={handoff.evidenceCount}
+          recentOwnerLabel={handoff.recentOwnerLabel}
+          recentOwnerDisplayName={handoff.recentOwnerDisplayName}
+          recentOwnerEmail={handoff.recentOwnerEmail}
+          auditReceiptFilename={handoff.auditReceiptFilename}
+          auditReceiptExportedAt={handoff.auditReceiptExportedAt}
+          auditReceiptFromDate={handoff.auditReceiptFromDate}
+          auditReceiptToDate={handoff.auditReceiptToDate}
+          auditReceiptSha256={handoff.auditReceiptSha256}
+        />
+      </div>
     </div>
   );
 }

@@ -103,6 +103,9 @@ test("Verification page keeps explicit go_live continuation link contract", asyn
   assert.match(checklistSource, /href=\{buildRunAwareChecklistHref\(primarySurface\)\}/);
   assert.match(checklistSource, /href=\{buildRunAwareChecklistHref\("\/artifacts"\)\}/);
   assert.match(checklistSource, /href=\{buildRunAwareChecklistHref\("\/settings\?intent=rollback"\)\}/);
+  assert.match(checklistSource, /href="#verification-delivery-track"/);
+  assert.match(checklistSource, /Review delivery tracking below/);
+  assert.match(source, /<div id="verification-delivery-track">[\s\S]*<WorkspaceDeliveryTrackPanel/s);
   assert.match(settingsSource, /type SettingsIntent = "upgrade" \| "manage-plan" \| "resolve-billing" \| "rollback" \| null;/);
   assert.match(settingsSource, /candidate === "rollback"/);
   assert.match(settingsPanelSource, /title: "Rollback guidance intent"/);
@@ -133,8 +136,11 @@ test("Go-live page keeps console handoff helper contract and explicit surface qu
   assert.match(source, /const upgradeSettingsHref = buildConsoleRunAwareHandoffHref\("\/settings\?intent=upgrade", handoff, activeRunId\);/);
   assert.match(source, /const playgroundHref = buildConsoleRunAwareHandoffHref\("\/playground", handoff, activeRunId\);/);
   assert.match(source, /const artifactsHref = buildConsoleRunAwareHandoffHref\("\/artifacts", handoff, activeRunId\);/);
+  assert.match(source, /const deliveryTrackHref = "#go-live-delivery-track";/);
   assert.match(source, /href=\{billingSettingsHref\}[\s\S]*?>\s*Review billing \+ settings\s*<\/Link>/s);
   assert.match(source, /href=\{upgradeSettingsHref\}[\s\S]*?> Settings upgrade intent<\/Link>/s);
+  assert.match(source, /<Link href=\{deliveryTrackHref\}>delivery tracker here<\/Link>/);
+  assert.match(source, /<div id="go-live-delivery-track">[\s\S]*<WorkspaceDeliveryTrackPanel/s);
   assert.match(
     source,
     /<WorkspaceDeliveryTrackPanel[\s\S]*runId=\{activeRunId\}[\s\S]*recentOwnerLabel=\{recentOwnerLabel\}[\s\S]*recentOwnerDisplayName=\{recentOwnerDisplayName\}[\s\S]*recentOwnerEmail=\{recentOwnerEmail\}[\s\S]*auditReceiptFilename=\{handoff\.auditReceiptFilename\}[\s\S]*auditReceiptExportedAt=\{handoff\.auditReceiptExportedAt\}[\s\S]*auditReceiptSha256=\{handoff\.auditReceiptSha256\}/,

@@ -74,6 +74,7 @@ export default async function GoLivePage({
         : null;
   const adminHref = adminReturnState.showAdminReturn ? adminReturnHref : "/admin";
   const adminLinkLabel = adminReturnState.showAdminReturn ? adminReturnState.adminReturnLabel : "Admin overview";
+  const deliveryTrackHref = "#go-live-delivery-track";
 
   return (
     <div className="space-y-8">
@@ -173,8 +174,9 @@ export default async function GoLivePage({
             Use this drill surface once the verification checklist, billing posture, and usage pressure have been
             reviewed. Keep the same workspace context, capture evidence in{" "}
             <Link href={verificationHref}>Verification</Link>, collect the usage trace via <Link href={usageHref}>Usage</Link>, inspect the concrete bundle in{" "}
-            <Link href={artifactsHref}>Artifacts</Link>, and record the experiment notes in the delivery tracker here
-            before ending the loop in <Link href={adminHref}>{adminLinkLabel}</Link>. These links only steer the
+            <Link href={artifactsHref}>Artifacts</Link>, and record the experiment notes in the{" "}
+            <Link href={deliveryTrackHref}>delivery tracker here</Link> before ending the loop in{" "}
+            <Link href={adminHref}>{adminLinkLabel}</Link>. These links only steer the
             navigation; they do not impersonate the admin or automate any step.
           </p>
           <p className="text-xs text-muted">
@@ -205,30 +207,32 @@ export default async function GoLivePage({
         auditReceiptToDate={handoff.auditReceiptToDate}
         auditReceiptSha256={handoff.auditReceiptSha256}
       />
-      <WorkspaceDeliveryTrackPanel
-        workspaceSlug={workspaceContext.workspace.slug}
-        sectionKey="go_live"
-        title="Go-live delivery notes"
-        description={goLiveDeliveryDescription}
-        source={handoff.source}
-        surface="go_live"
-        runId={activeRunId}
-        week8Focus={handoff.week8Focus}
-        attentionWorkspace={handoff.attentionWorkspace}
-        attentionOrganization={handoff.attentionOrganization}
-        deliveryContext={handoff.deliveryContext}
-        recentTrackKey={recentTrackKey}
-        recentUpdateKind={recentUpdateKind}
-        evidenceCount={recentEvidenceCount}
-        recentOwnerLabel={recentOwnerLabel}
-        recentOwnerDisplayName={recentOwnerDisplayName}
-        recentOwnerEmail={recentOwnerEmail}
-        auditReceiptFilename={handoff.auditReceiptFilename}
-        auditReceiptExportedAt={handoff.auditReceiptExportedAt}
-        auditReceiptFromDate={handoff.auditReceiptFromDate}
-        auditReceiptToDate={handoff.auditReceiptToDate}
-        auditReceiptSha256={handoff.auditReceiptSha256}
-      />
+      <div id="go-live-delivery-track">
+        <WorkspaceDeliveryTrackPanel
+          workspaceSlug={workspaceContext.workspace.slug}
+          sectionKey="go_live"
+          title="Go-live delivery notes"
+          description={goLiveDeliveryDescription}
+          source={handoff.source}
+          surface="go_live"
+          runId={activeRunId}
+          week8Focus={handoff.week8Focus}
+          attentionWorkspace={handoff.attentionWorkspace}
+          attentionOrganization={handoff.attentionOrganization}
+          deliveryContext={handoff.deliveryContext}
+          recentTrackKey={recentTrackKey}
+          recentUpdateKind={recentUpdateKind}
+          evidenceCount={recentEvidenceCount}
+          recentOwnerLabel={recentOwnerLabel}
+          recentOwnerDisplayName={recentOwnerDisplayName}
+          recentOwnerEmail={recentOwnerEmail}
+          auditReceiptFilename={handoff.auditReceiptFilename}
+          auditReceiptExportedAt={handoff.auditReceiptExportedAt}
+          auditReceiptFromDate={handoff.auditReceiptFromDate}
+          auditReceiptToDate={handoff.auditReceiptToDate}
+          auditReceiptSha256={handoff.auditReceiptSha256}
+        />
+      </div>
     </div>
   );
 }
