@@ -36,6 +36,14 @@ test("settings page keeps self-serve billing lane framing navigation-only and ev
   assert.match(source, /const runAwareHandoff = \{ \.\.\.handoff, runId: activeRunId \};/);
   assert.match(
     source,
+    /const highlightIntent = normalizeIntent\(searchParams\?\.intent\);/,
+  );
+  assert.match(
+    source,
+    /const initialCheckoutSessionId = Array\.isArray\(searchParams\?\.checkout_session_id\)\s*\?\s*searchParams\?\.checkout_session_id\[0\] \?\? null\s*:\s*searchParams\?\.checkout_session_id \?\? null;/s,
+  );
+  assert.match(
+    source,
     /const adminReturnState = buildConsoleAdminReturnState\(\{\s*source: handoff\.source,\s*surface: handoff\.surface,\s*expectedSurface: "verification",\s*recentTrackKey: handoff\.recentTrackKey,\s*\}\);/s,
   );
   assert.match(
@@ -55,6 +63,8 @@ test("settings page keeps self-serve billing lane framing navigation-only and ev
     /<ConsoleAdminFollowUp[\s\S]*handoff=\{runAwareHandoff\}[\s\S]*surface="settings"[\s\S]*workspaceSlug=\{workspaceContext\.workspace\.slug\}[\s\S]*ownerDisplayName=\{runAwareHandoff\.recentOwnerDisplayName \?\? runAwareHandoff\.recentOwnerLabel\}[\s\S]*ownerEmail=\{runAwareHandoff\.recentOwnerEmail\}/,
   );
   assert.match(source, /<WorkspaceSettingsPanel[\s\S]*runId=\{activeRunId\}/);
+  assert.match(source, /<WorkspaceSettingsPanel[\s\S]*highlightIntent=\{highlightIntent\}/s);
+  assert.match(source, /<WorkspaceSettingsPanel[\s\S]*initialCheckoutSessionId=\{initialCheckoutSessionId\}/s);
   assert.match(
     source,
     /description="Review workspace tenancy, self-serve billing follow-up, subscription status, and retention defaults while keeping the verification\/go-live\/admin-readiness governance lane connected\."/,

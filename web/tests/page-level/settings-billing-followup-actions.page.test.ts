@@ -99,6 +99,9 @@ test("billing follow-up body text keeps verification and go-live evidence signal
 test("follow-up href builders keep verification, usage, admin, and go-live routes explicit", async () => {
   const source = await readSource(settingsPanelPath);
 
+  assert.match(source, /type SettingsPanelIntent = "upgrade" \| "manage-plan" \| "resolve-billing" \| "rollback";/);
+  assert.match(source, /intent\?: SettingsPanelIntent;/);
+  assert.match(source, /function buildSettingsIntentHref\(\s*intent: SettingsPanelIntent,/s);
   assert.match(source, /const adminReturnHref = buildAdminReturnHref\("\/admin",\s*\{[\s\S]*runId,/);
   assert.match(source, /attentionWorkspace: attentionWorkspace \?\? workspaceSlug,/);
   assert.match(source, /attentionOrganization,/);
@@ -110,6 +113,20 @@ test("follow-up href builders keep verification, usage, admin, and go-live route
   assert.match(source, /const playgroundHref = buildSettingsHref\(\{ pathname: "\/playground",/s);
   assert.match(source, /const verificationHref = buildSettingsHref\(\{ pathname: "\/verification\?surface=verification",/s);
   assert.match(source, /const goLiveHref = buildSettingsHref\(\{ pathname: "\/go-live\?surface=go_live",/s);
+});
+
+test("billing highlight contract stays coupled to intent-matched billing actions", async () => {
+  const source = await readSource(settingsPanelPath);
+
+  assert.match(source, /const billingActionHref = billingSummary\?\.action\s*\?\s*buildSettingsHref\(\{/s);
+  assert.match(
+    source,
+    /const highlightBillingCard = intentMatchesAction\(\s*highlightIntent,\s*billingActionHref \?\? billingSummary\?\.action\?\.href,\s*\);/s,
+  );
+  assert.match(
+    source,
+    /<Card className=\{highlightBillingCard \? "border-amber-300 shadow-\[0_0_0_1px_rgba\(245,158,11,0\.35\)\]" : undefined\}>/,
+  );
 });
 
 test("billing live actions refresh enterprise readiness queries alongside workspace settings", async () => {

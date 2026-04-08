@@ -123,8 +123,10 @@ function billingBadgeVariant(tone: "positive" | "warning" | "neutral"): "strong"
   return "subtle";
 }
 
+type SettingsPanelIntent = "upgrade" | "manage-plan" | "resolve-billing" | "rollback";
+
 function intentMatchesAction(
-  highlightIntent: "upgrade" | "manage-plan" | "resolve-billing" | "rollback" | null,
+  highlightIntent: SettingsPanelIntent | null,
   href?: string,
 ): boolean {
   if (!highlightIntent || !href) {
@@ -872,7 +874,7 @@ type SettingsHrefArgs = {
   auditReceiptFromDate?: string | null;
   auditReceiptToDate?: string | null;
   auditReceiptSha256?: string | null;
-  intent?: "manage-plan" | "resolve-billing" | "upgrade";
+  intent?: SettingsPanelIntent;
 };
 
 function buildAuditExportReceiptContinuityArgs(
@@ -921,7 +923,7 @@ function buildSettingsHref(args: SettingsHrefArgs): string {
 }
 
 function buildSettingsIntentHref(
-  intent: "manage-plan" | "resolve-billing" | "upgrade" | "rollback",
+  intent: SettingsPanelIntent,
   args: Omit<SettingsHrefArgs, "pathname" | "intent">,
 ): string {
   return buildSettingsHref({
@@ -971,7 +973,7 @@ export function WorkspaceSettingsPanel({
   recentOwnerEmail,
 }: {
   workspaceSlug: string;
-  highlightIntent?: "upgrade" | "manage-plan" | "resolve-billing" | "rollback" | null;
+  highlightIntent?: SettingsPanelIntent | null;
   initialCheckoutSessionId?: string | null;
   runId?: string | null;
   source?: string | null;
@@ -1314,7 +1316,7 @@ export function WorkspaceSettingsPanel({
   const rollbackOwnerSummary =
     recentOwnerDisplayName ?? recentOwnerLabel ?? recentOwnerEmail ?? "Current operator";
   const intentContextMap: Record<
-    "manage-plan" | "resolve-billing" | "upgrade" | "rollback",
+    SettingsPanelIntent,
     {
       title: string;
       body: string;
