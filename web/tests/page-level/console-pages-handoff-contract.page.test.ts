@@ -129,7 +129,11 @@ test("Agents and egress pages keep shared governance continuity with console han
     /import \{\s*buildConsoleAdminFollowUpPayload,\s*type ConsoleAdminFollowUpPayload,\s*type ConsoleHandoffState,\s*\} from "@\/lib\/console-handoff";/s,
   );
   assert.match(consoleAdminFollowUpSource, /payload:\s*payloadOverride,/);
-  assert.match(consoleAdminFollowUpSource, /const payload =\s*payloadOverride \?\?/);
+  assert.match(consoleAdminFollowUpSource, /const defaultPayload = buildConsoleAdminFollowUpPayload\(\{/);
+  assert.match(
+    consoleAdminFollowUpSource,
+    /const payload = payloadOverride\s*\?\s*\{[\s\S]*\.\.\.\(defaultPayload \?\? \{\}\),[\s\S]*\.\.\.payloadOverride,[\s\S]*ownerDisplayName: payloadOverride\.ownerDisplayName \?\? defaultPayload\?\.ownerDisplayName \?\? null,[\s\S]*ownerEmail: payloadOverride\.ownerEmail \?\? defaultPayload\?\.ownerEmail \?\? null,[\s\S]*\}\s*:\s*defaultPayload;/s,
+  );
   assert.match(consoleAdminFollowUpSource, /buildConsoleAdminFollowUpPayload\(\{/);
   assert.match(consoleAdminFollowUpSource, /handoff,/);
   assert.match(consoleAdminFollowUpSource, /ownerDisplayName = handoff\.recentOwnerDisplayName \?\? handoff\.recentOwnerLabel/);

@@ -25,13 +25,19 @@ export function ConsoleAdminFollowUp({
   ownerDisplayName = handoff.recentOwnerDisplayName ?? handoff.recentOwnerLabel,
   ownerEmail = handoff.recentOwnerEmail,
 }: ConsoleAdminFollowUpProps) {
-  const payload =
-    payloadOverride ??
-    buildConsoleAdminFollowUpPayload({
-      handoff,
-      ownerDisplayName,
-      ownerEmail,
-    });
+  const defaultPayload = buildConsoleAdminFollowUpPayload({
+    handoff,
+    ownerDisplayName,
+    ownerEmail,
+  });
+  const payload = payloadOverride
+    ? {
+        ...(defaultPayload ?? {}),
+        ...payloadOverride,
+        ownerDisplayName: payloadOverride.ownerDisplayName ?? defaultPayload?.ownerDisplayName ?? null,
+        ownerEmail: payloadOverride.ownerEmail ?? defaultPayload?.ownerEmail ?? null,
+      }
+    : defaultPayload;
   if (!payload) {
     return null;
   }
