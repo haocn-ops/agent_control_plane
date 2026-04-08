@@ -16,6 +16,78 @@ const specs = [
   "tests/browser/playground-verification-go-live-admin-return.smoke.spec.ts",
 ] as const;
 
+const smokeExpectations = [
+  {
+    path: "tests/browser/playground-verification-admin-return.smoke.spec.ts",
+    requiredPatterns: [
+      /playground -> verification -> admin keeps readiness return continuity/,
+      /\/playground\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_preview&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /Prompt, invoke, inspect/,
+      /Admin follow-up context/,
+      /Plan-limit checkpoint/,
+      /Capture verification evidence/,
+      /\/verification\\\?/,
+      /surface=verification/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /recent_track_key=verification/,
+      /recent_update_kind=verification/,
+      /evidence_count=2/,
+      /recent_owner_display_name=Avery(?:\\\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+      /Week 8 launch checklist/,
+      /Verification evidence lane/,
+      /Focus Credentials/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /SaaS admin overview/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+      /Clear readiness focus/,
+    ],
+  },
+  {
+    path: "tests/browser/playground-verification-go-live-admin-return.smoke.spec.ts",
+    requiredPatterns: [
+      /playground -> verification -> go-live -> admin keeps readiness browser continuity/,
+      /\/playground\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_preview&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /Prompt, invoke, inspect/,
+      /Admin follow-up context/,
+      /Plan-limit checkpoint/,
+      /Capture verification evidence/,
+      /\/verification\\\?/,
+      /surface=verification/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /recent_track_key=verification/,
+      /recent_update_kind=verification/,
+      /evidence_count=2/,
+      /recent_owner_display_name=Avery(?:\\\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+      /Week 8 launch checklist/,
+      /Verification evidence lane/,
+      /Focus Credentials/,
+      /Continue to go-live drill/,
+      /\/go-live\\\?/,
+      /surface=go_live/,
+      /Mock go-live drill/,
+      /Session-aware drill lane/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /SaaS admin overview/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+      /Clear readiness focus/,
+    ],
+  },
+] as const;
+
 test("playground verification follow-up batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -44,8 +116,18 @@ test("playground verification follow-up batch stays wired into scripts and docs"
   );
 
   assert.match(docsReadme, /web:test:browser:playground-verification-followup/);
-  assert.match(docsReadme, /playground -> verification -> admin/);
-  assert.match(docsReadme, /playground -> verification -> go-live -> admin/);
-  assert.match(executionPlan, /playground-verification-followup/);
-  assert.match(executionPlan, /playground -> verification -> go-live -> admin/);
+assert.match(docsReadme, /playground -> verification -> admin/);
+assert.match(docsReadme, /playground -> verification -> go-live -> admin/);
+assert.match(executionPlan, /playground-verification-followup/);
+assert.match(executionPlan, /playground -> verification -> go-live -> admin/);
 });
+
+for (const spec of smokeExpectations) {
+  test(`playground verification follow-up smoke keeps ${spec.path} explicit without overstating coverage`, async () => {
+    const source = await readFile(path.resolve(webDir, spec.path), "utf8");
+
+    for (const pattern of spec.requiredPatterns) {
+      assert.match(source, pattern);
+    }
+  });
+}
