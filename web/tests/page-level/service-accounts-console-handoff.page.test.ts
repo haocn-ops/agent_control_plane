@@ -51,12 +51,15 @@ test("service accounts page adopts shared console handoff helpers with audit-exp
   assert.match(source, /const verificationHref = buildServiceAccountsHandoffHref\("\/verification\?surface=verification", runAwareHandoff\);/);
   assert.match(source, /const goLiveHref = buildServiceAccountsHandoffHref\("\/go-live\?surface=go_live", runAwareHandoff\);/);
   assert.match(source, /const adminHref = buildServiceAccountsHandoffHref\("\/admin", runAwareHandoff\);/);
+  assert.match(source, /const adminFollowUpActionsHref = "#service-accounts-admin-follow-up";/);
   assert.match(source, /href=\{goLiveHref\}/);
   assert.match(source, /href=\{adminHref\}/);
   assert.match(source, /Reopen audit export receipt/);
   assert.match(source, /Continue verification evidence/);
   assert.match(source, /href=\{buildServiceAccountsHandoffHref\("\/settings\?intent=upgrade", runAwareHandoff\)\}/);
   assert.match(source, /href=\{buildServiceAccountsHandoffHref\("\/verification\?surface=verification", runAwareHandoff\)\}/);
+  assert.match(source, /<Link href=\{adminFollowUpActionsHref\}>admin follow-up<\/Link>/);
+  assert.match(source, /<div id="service-accounts-admin-follow-up" className="flex flex-wrap gap-2">/);
   assert.match(source, /Reopen go-live drill/);
   assert.match(source, /Return to admin follow-up/);
   assert.match(source, /Navigation-only manual relay:/);

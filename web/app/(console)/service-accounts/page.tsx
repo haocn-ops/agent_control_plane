@@ -50,6 +50,7 @@ export default async function ServiceAccountsPage({
   const verificationHref = buildServiceAccountsHandoffHref("/verification?surface=verification", runAwareHandoff);
   const goLiveHref = buildServiceAccountsHandoffHref("/go-live?surface=go_live", runAwareHandoff);
   const adminHref = buildServiceAccountsHandoffHref("/admin", runAwareHandoff);
+  const adminFollowUpActionsHref = "#service-accounts-admin-follow-up";
 
   return (
     <div className="space-y-8">
@@ -71,13 +72,14 @@ export default async function ServiceAccountsPage({
           <p>
             Service account flows must carry the same Latest export receipt proof: reopen the receipt on{" "}
             <code className="font-mono">/settings?intent=upgrade</code>, keep the filename, filters, and SHA-256, and
-            reuse that evidence as you move through verification, the go-live drill, and any admin follow-up.
+            reuse that evidence as you move through verification, the go-live drill, and any{" "}
+            <Link href={adminFollowUpActionsHref}>admin follow-up</Link>.
           </p>
           <p className="text-xs text-muted">
             Navigation-only manual relay: these links preserve workspace context but do not automate remediation or
             impersonate another operator.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div id="service-accounts-admin-follow-up" className="flex flex-wrap gap-2">
             <Link
               href={buildServiceAccountsHandoffHref("/settings?intent=upgrade", runAwareHandoff)}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-card"
