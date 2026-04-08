@@ -486,9 +486,17 @@ test("workspace collection route helper composes workspace path and fallback GET
   assert.match(source, /const workspaceContext = await resolveContext\(\);/);
   assert.match(source, /return proxyWorkspaceContextCollectionGet\(\{/);
   assert.match(source, /workspaceContext,/);
-  assert.match(source, /proxy,\s*\}\);/);
-  assert.match(source, /export async function proxyPathCollectionGet<T>\(args: \{/);
-  assert.match(source, /return proxy\(args\.path,\s*args\.fallback\);/);
+  assert.match(source, /proxy:\s*args\.proxy/);
+  assert.match(source, /export function proxyCollectionGet<T>\(/);
+  assert.match(source, /const proxy = options\?\.proxy \?\? proxyControlPlaneOrFallback;/);
+  assert.match(source, /return proxy\(/);
+  assert.match(source, /args\.path,/);
+  assert.match(source, /args\.fallback,/);
+  assert.match(source, /workspaceContext:\s*args\.workspaceContext/);
+  assert.match(source, /export function proxyPathCollectionGet<T>\(args: \{/);
+  assert.match(source, /return proxyCollectionGet\(\{/);
+  assert.match(source, /path:\s*args\.path,/);
+  assert.match(source, /proxy:\s*args\.proxy/);
 });
 
 test("system collection GET routes reuse shared path fallback helper", async () => {
@@ -541,11 +549,16 @@ test("workspace collection route helper delegates both workspace-scoped and path
     source,
     /import \{ proxyWorkspaceScopedPostRequest \} from "\.\/post-route-helpers";/,
   );
+  assert.match(source, /export function proxyWorkspaceCollectionPost\(args: \{/);
+  assert.match(source, /workspace:\s*args\.workspaceContext\.workspace,/);
   assert.match(source, /export async function proxyWorkspaceScopedCollectionPost\(args: \{/);
   assert.match(source, /const workspaceContext = await resolveContext\(\);/);
-  assert.match(source, /return proxyPost\(\{/);
+  assert.match(source, /return proxyWorkspaceCollectionPost\(\{/);
   assert.match(source, /path:\s*buildWorkspaceCollectionPath\(workspaceContext\.workspace\.workspace_id,\s*args\.suffix\)/);
   assert.match(source, /export async function proxyWorkspaceContextCollectionPost\(args: \{/);
+  assert.match(source, /workspaceContext\?: WorkspaceContext;/);
+  assert.match(source, /args\.workspaceContext \?\?/);
+  assert.match(source, /return proxyWorkspaceCollectionPost\(\{/);
   assert.match(source, /path:\s*args\.path,/);
 });
 
