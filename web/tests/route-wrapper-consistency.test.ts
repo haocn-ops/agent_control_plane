@@ -285,9 +285,12 @@ test("metadata GET helper keeps shared resolver, guard, and proxy injection poin
     source,
     /import \{ resolveWorkspaceContextForServer, type WorkspaceContext \} from "@\/lib\/workspace-context";/,
   );
+  assert.match(source, /export function proxyWorkspaceContextGet\(/);
+  assert.match(source, /return proxy\(args\.getPath\(args\.workspaceContext\),\s*\{/);
+  assert.match(source, /workspaceContext:\s*args\.workspaceContext/);
   assert.match(source, /export async function proxyWorkspaceScopedGet\(/);
-  assert.match(source, /return proxy\(args\.getPath\(workspaceContext\),\s*\{/);
-  assert.match(source, /workspaceContext,\s*init:\s*args\.init/s);
+  assert.match(source, /return proxyWorkspaceContextGet\(\{/);
+  assert.match(source, /\.\.\.args,\s*workspaceContext,/s);
   assert.match(source, /export async function proxyMetadataGet\(/);
   assert.match(
     source,
@@ -301,7 +304,8 @@ test("metadata GET helper keeps shared resolver, guard, and proxy injection poin
   assert.match(source, /const workspaceContext = await resolveWorkspaceContext\(\);/);
   assert.match(source, /const guardResponse = metadataGuard\(\{/);
   assert.match(source, /if \(guardResponse\) \{\s*return guardResponse;\s*\}/s);
-  assert.match(source, /return proxy\(args\.getPath\(workspaceContext\),\s*\{/);
+  assert.match(source, /return proxyWorkspaceContextGet\(\{/);
+  assert.match(source, /getPath:\s*args\.getPath/);
   assert.doesNotMatch(source, /await fetch\(/);
 });
 

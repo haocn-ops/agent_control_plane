@@ -13,6 +13,22 @@ export type WorkspaceScopedGetArgs = {
   init?: RequestInit;
 };
 
+export function proxyWorkspaceContextGet(
+  args: WorkspaceScopedGetArgs & {
+    workspaceContext: WorkspaceContext;
+  },
+  options?: {
+    proxy?: typeof proxyControlPlane;
+  },
+): Promise<Response> {
+  const proxy = options?.proxy ?? proxyControlPlane;
+  return proxy(args.getPath(args.workspaceContext), {
+    includeTenant: args.includeTenant,
+    workspaceContext: args.workspaceContext,
+    init: args.init,
+  });
+}
+
 export async function proxyWorkspaceScopedGet(
   args: WorkspaceScopedGetArgs,
   options?: {
@@ -25,10 +41,11 @@ export async function proxyWorkspaceScopedGet(
   const proxy = options?.proxy ?? proxyControlPlane;
   const workspaceContext = await resolveWorkspaceContext();
 
-  return proxy(args.getPath(workspaceContext), {
-    includeTenant: args.includeTenant,
+  return proxyWorkspaceContextGet({
+    ...args,
     workspaceContext,
-    init: args.init,
+  }, {
+    proxy,
   });
 }
 
@@ -54,8 +71,11 @@ export async function proxyMetadataGet(
     return guardResponse;
   }
 
-  return proxy(args.getPath(workspaceContext), {
+  return proxyWorkspaceContextGet({
+    getPath: args.getPath,
     includeTenant: args.includeTenant,
     workspaceContext,
+  }, {
+    proxy,
   });
 }
