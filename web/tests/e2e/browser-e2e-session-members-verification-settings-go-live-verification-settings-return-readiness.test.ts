@@ -16,6 +16,74 @@ const specs = [
   "tests/browser/launchpad-session-members-verification-settings-go-live-verification-settings-admin-return.smoke.spec.ts",
 ] as const;
 
+const smokeExpectations = [
+  {
+    path: "tests/browser/session-members-verification-settings-go-live-verification-settings-admin-return.smoke.spec.ts",
+    requiredPatterns: [
+      /session -> members -> verification -> settings -> go-live -> verification -> settings -> admin keeps readiness return continuity/,
+      /\/session\?source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /recent_owner_display_name=Avery(?:\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+      /Session and workspace access/,
+      /Before entering a managed lane/,
+      /Review members and access/,
+      /Workspace access/,
+      /Manual onboarding handoff/,
+      /Capture verification evidence/,
+      /surface=verification/,
+      /Verification evidence lane/,
+      /\/settings\\\?/,
+      /intent=manage-plan/,
+      /Workspace configuration/,
+      /Rehearse go-live readiness/,
+      /Mock go-live drill/,
+      /Session-aware drill lane/,
+      /Reopen verification evidence/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /Focus restored/,
+      /Clear readiness focus/,
+      /SaaS admin overview/,
+    ],
+  },
+  {
+    path: "tests/browser/launchpad-session-members-verification-settings-go-live-verification-settings-admin-return.smoke.spec.ts",
+    requiredPatterns: [
+      /launchpad -> session -> members -> verification -> settings -> go-live -> verification -> settings -> admin keeps readiness return continuity/,
+      /\/\?source=admin-readiness/,
+      /SaaS Workspace Launch Hub/,
+      /Return to session checkpoint/,
+      /attention_workspace=preview/,
+      /attention_organization=org_demo/,
+      /Review members and access/,
+      /Workspace access/,
+      /Manual onboarding handoff/,
+      /Capture verification evidence/,
+      /surface=verification/,
+      /Verification evidence lane/,
+      /Admin follow-up context/,
+      /Focus Credentials/,
+      /\/settings\\\?/,
+      /intent=manage-plan/,
+      /Workspace configuration/,
+      /Rehearse go-live readiness/,
+      /Mock go-live drill/,
+      /Session-aware drill lane/,
+      /Reopen verification evidence/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /Focus restored/,
+      /Clear readiness focus/,
+      /SaaS admin overview/,
+    ],
+  },
+] as const;
+
 test("session-members settings-go-live verification-settings return batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -69,3 +137,13 @@ test("session-members settings-go-live verification-settings return batch stays 
     /launchpad -> session -> members -> verification -> settings -> go-live -> verification -> settings -> admin/,
   );
 });
+
+for (const spec of smokeExpectations) {
+  test(`session-members verification settings go-live return smoke keeps ${spec.path} explicit`, async () => {
+    const source = await readFile(path.resolve(webDir, spec.path), "utf8");
+
+    for (const pattern of spec.requiredPatterns) {
+      assert.match(source, pattern);
+    }
+  });
+}
