@@ -512,6 +512,39 @@ test("fetchWorkspaceDedicatedEnvironmentReadiness maps 503 control_plane_base_mi
   });
 });
 
+test("fetchWorkspaceSsoReadiness maps 503 control_plane_base_missing to fallback_control_plane_unavailable", async () => {
+  await withMockFetch(async (input) => {
+    assert.equal(String(input), "/api/control-plane/workspace/sso");
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: "control_plane_base_missing",
+          message: "Missing CONTROL_PLANE_BASE_URL",
+          details: {
+            upgrade_href: "/settings?intent=upgrade&feature=sso",
+            plan_code: "enterprise",
+          },
+        },
+      }),
+      {
+        status: 503,
+        headers: {
+          "content-type": "application/json",
+        },
+      },
+    );
+  }, async () => {
+    const result = await fetchWorkspaceSsoReadiness();
+    assert.equal(result.feature, "sso");
+    assert.equal(result.contract_meta?.source, "fallback_control_plane_unavailable");
+    assert.equal(result.contract_meta?.issue?.code, "control_plane_base_missing");
+    assert.equal(result.feature_enabled, false);
+    assert.equal(result.status, "staged");
+    assert.equal(result.upgrade_href, "/settings?intent=upgrade&feature=sso");
+    assert.equal(result.plan_code, "enterprise");
+  });
+});
+
 test("createBillingPortalSession posts return_url payload to portal route", async () => {
   await withMockFetch(async (input, init) => {
     assert.equal(String(input), "/api/control-plane/workspace/billing/portal-sessions");
