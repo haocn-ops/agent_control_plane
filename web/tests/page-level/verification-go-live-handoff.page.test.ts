@@ -105,6 +105,17 @@ test("Verification page keeps explicit go_live continuation link contract", asyn
   assert.match(checklistSource, /href=\{buildRunAwareChecklistHref\("\/settings\?intent=rollback"\)\}/);
   assert.match(checklistSource, /href="#verification-delivery-track"/);
   assert.match(checklistSource, /Review delivery tracking below/);
+  assert.match(checklistSource, /function deliveryTrackSummaryLabel\(trackKey: RecentTrackKey \| null\): string \| null \{/);
+  assert.match(checklistSource, /function recentUpdateKindSummaryLabel\(kind\?: string \| null\): string \| null \{/);
+  assert.match(checklistSource, /function evidenceCountSummaryLabel\(count\?: number \| null\): string \| null \{/);
+  assert.match(
+    checklistSource,
+    /const recentDeliverySummaryItems = \[[\s\S]*label: "Track"[\s\S]*deliveryTrackSummaryLabel\(normalizedRecentTrackKey\)[\s\S]*label: "Latest update"[\s\S]*recentUpdateKindSummaryLabel\(normalizedRecentUpdateKind\)[\s\S]*label: "Evidence"[\s\S]*evidenceCountSummaryLabel\(evidenceCount\)[\s\S]*label: "Owner"[\s\S]*recentDeliveryOwner/s,
+  );
+  assert.match(checklistSource, /recentDeliverySummaryItems\.length > 0 \? \(/);
+  assert.match(checklistSource, /<CardTitle>Recent delivery handoff<\/CardTitle>/);
+  assert.match(checklistSource, /latest admin delivery metadata/);
+  assert.match(checklistSource, /recentDeliverySummaryItems\.map\(\(item\) => \(/);
   assert.match(source, /<div id="verification-delivery-track">[\s\S]*<WorkspaceDeliveryTrackPanel/s);
   assert.match(settingsSource, /type SettingsIntent = "upgrade" \| "manage-plan" \| "resolve-billing" \| "rollback" \| null;/);
   assert.match(settingsSource, /candidate === "rollback"/);

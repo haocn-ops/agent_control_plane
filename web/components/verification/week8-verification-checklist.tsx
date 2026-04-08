@@ -85,6 +85,42 @@ function normalizeRecentUpdateKind(value?: string | null): string | null {
   return null;
 }
 
+function deliveryTrackSummaryLabel(trackKey: RecentTrackKey | null): string | null {
+  if (trackKey === "verification") {
+    return "Verification";
+  }
+  if (trackKey === "go_live") {
+    return "Go-live";
+  }
+  return null;
+}
+
+function recentUpdateKindSummaryLabel(kind?: string | null): string | null {
+  if (kind === "verification") {
+    return "Verification updated";
+  }
+  if (kind === "go_live") {
+    return "Go-live updated";
+  }
+  if (kind === "verification_completed") {
+    return "Verification completed";
+  }
+  if (kind === "go_live_completed") {
+    return "Go-live completed";
+  }
+  if (kind === "evidence_only") {
+    return "Evidence added";
+  }
+  return null;
+}
+
+function evidenceCountSummaryLabel(count?: number | null): string | null {
+  if (typeof count !== "number") {
+    return null;
+  }
+  return `${count} evidence ${count === 1 ? "item" : "items"}`;
+}
+
 function buildSettingsIntentHref(
   intent: string | null,
   source: VerificationChecklistSource | null,
@@ -269,6 +305,19 @@ export function Week8VerificationChecklist({
       : verificationIncomplete
         ? "Capture verification evidence"
         : "Finalize go-live drill";
+  const recentDeliveryOwner = recentOwnerDisplayName ?? recentOwnerLabel ?? recentOwnerEmail ?? null;
+  const recentDeliverySummaryItems = [
+    deliveryTrackSummaryLabel(normalizedRecentTrackKey)
+      ? { label: "Track", value: deliveryTrackSummaryLabel(normalizedRecentTrackKey) }
+      : null,
+    recentUpdateKindSummaryLabel(normalizedRecentUpdateKind)
+      ? { label: "Latest update", value: recentUpdateKindSummaryLabel(normalizedRecentUpdateKind) }
+      : null,
+    evidenceCountSummaryLabel(evidenceCount)
+      ? { label: "Evidence", value: evidenceCountSummaryLabel(evidenceCount) }
+      : null,
+    recentDeliveryOwner ? { label: "Owner", value: recentDeliveryOwner } : null,
+  ].filter((item): item is { label: string; value: string } => item !== null);
   const onboardingGuidanceItems = [
     {
       id: "onboarding-guidance-api-keys",
@@ -475,6 +524,27 @@ export function Week8VerificationChecklist({
           </p>
         </CardContent>
       </Card>
+
+      {recentDeliverySummaryItems.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent delivery handoff</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <p className="text-muted">
+              Use the latest admin delivery metadata to keep verification notes aligned before moving to go-live.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {recentDeliverySummaryItems.map((item) => (
+                <div key={item.label} className="rounded-xl border border-border bg-background px-3 py-2">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">{item.label}</p>
+                  <p className="mt-1 text-xs font-medium text-foreground">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {auditExportReceipt ? (
         <AuditExportReceiptCallout
