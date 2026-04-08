@@ -285,6 +285,11 @@ test("metadata GET helper keeps shared resolver, guard, and proxy injection poin
     source,
     /import \{ resolveWorkspaceContextForServer, type WorkspaceContext \} from "@\/lib\/workspace-context";/,
   );
+  assert.match(source, /export function proxyPathGet\(/);
+  assert.match(source, /return proxy\(args\.path,\s*\{/);
+  assert.match(source, /export function proxyRequestPathGet\(/);
+  assert.match(source, /const search = new URL\(args\.request\.url\)\.search;/);
+  assert.match(source, /return proxyPathGet\(\{/);
   assert.match(source, /export function proxyWorkspaceContextGet\(/);
   assert.match(source, /return proxy\(args\.getPath\(args\.workspaceContext\),\s*\{/);
   assert.match(source, /workspaceContext:\s*args\.workspaceContext/);
@@ -418,22 +423,28 @@ test("workspace route helper keeps includeTenant=false and bootstrap path wiring
   assert.match(source, /const WORKSPACES_BASE_PATH = "\/api\/v1\/saas\/workspaces";/);
   assert.match(source, /export function buildWorkspaceBootstrapPath\(workspaceId: string\): string/);
   assert.match(source, /return `\$\{WORKSPACES_BASE_PATH\}\/\$\{workspaceId\}\/bootstrap`;/);
-  assert.match(source, /export async function proxyWorkspaceCreatePost\(/);
-  assert.match(source, /const proxy = options\?\.proxy \?\? proxyControlPlane;/);
-  assert.match(source, /const initBuilder = options\?\.initBuilder \?\? buildWorkspaceCreateProxyInit;/);
-  assert.match(source, /return proxy\(WORKSPACES_BASE_PATH,\s*\{/);
+  assert.match(source, /export async function proxyWorkspaceTenantlessPost\(args: \{/);
+  assert.match(source, /const proxy = options\.proxy \?\? proxyControlPlane;/);
+  assert.match(source, /return proxy\(args\.path,\s*\{/);
   assert.match(source, /includeTenant:\s*false/);
-  assert.match(source, /init:\s*await initBuilder\(request\)/);
+  assert.match(source, /init:\s*await options\.initBuilder\(args\.request\)/);
+  assert.match(source, /export async function proxyWorkspaceCreatePost\(/);
+  assert.match(source, /const initBuilder = options\?\.initBuilder \?\? buildWorkspaceCreateProxyInit;/);
+  assert.match(source, /return proxyWorkspaceTenantlessPost\(\{/);
+  assert.match(source, /path:\s*WORKSPACES_BASE_PATH/);
+  assert.match(source, /proxy:\s*options\?\.proxy/);
+  assert.match(source, /initBuilder,/);
   assert.match(source, /export async function proxyWorkspaceBootstrapPost\(/);
   assert.match(
     source,
     /const currentWorkspace = args\.currentWorkspace \?\? \(await resolveWorkspaceContext\(\)\)\.workspace;/,
   );
   assert.match(source, /const initBuilder = options\?\.initBuilder \?\? buildWorkspaceBootstrapProxyInit;/);
-  assert.match(source, /return proxy\(buildWorkspaceBootstrapPath\(args\.workspaceId\),\s*\{/);
+  assert.match(source, /return proxyWorkspaceTenantlessPost\(\{/);
+  assert.match(source, /path:\s*buildWorkspaceBootstrapPath\(args\.workspaceId\)/);
   assert.match(
     source,
-    /init:\s*await initBuilder\(request,\s*\{\s*workspaceId:\s*args\.workspaceId,\s*currentWorkspace,\s*\}\)/s,
+    /initBuilder:\s*\(request\)\s*=>\s*initBuilder\(request,\s*\{\s*workspaceId:\s*args\.workspaceId,\s*currentWorkspace,\s*\}\)/s,
   );
   assert.doesNotMatch(source, /await fetch\(/);
 });
@@ -533,12 +544,14 @@ test("health route reuses shared system GET helper", async () => {
   assert.match(healthSource, /return proxyHealthGet\(\);/);
   assert.doesNotMatch(healthSource, /proxyControlPlane\(/);
 
-  assert.match(helperSource, /import \{ proxyControlPlane \} from "@\/lib\/control-plane-proxy";/);
+  assert.match(helperSource, /import \{ proxyPathGet \} from "\.\/get-route-helpers";/);
   assert.match(helperSource, /const HEALTH_PATH = "\/api\/v1\/health";/);
   assert.match(helperSource, /export function buildHealthPath\(\): string/);
   assert.match(helperSource, /return HEALTH_PATH;/);
   assert.match(helperSource, /export async function proxyHealthGet\(args\?: \{/);
-  assert.match(helperSource, /return proxy\(buildHealthPath\(\),\s*\{\s*includeTenant:\s*false\s*\}\);/);
+  assert.match(helperSource, /return proxyPathGet\(\{/);
+  assert.match(helperSource, /path:\s*buildHealthPath\(\),/);
+  assert.match(helperSource, /includeTenant:\s*false,/);
   assert.doesNotMatch(helperSource, /await fetch\(/);
 });
 
@@ -755,13 +768,13 @@ test("run detail GET routes reuse shared run-route helper", async () => {
   const helperSource = await readRouteSource(runRouteHelperPath);
   assert.match(
     helperSource,
-    /import \{ proxyControlPlane \} from "(?:@\/lib|(?:\.\.\/)+lib)\/control-plane-proxy";/,
+    /import \{ proxyRequestPathGet \} from "\.\.\/get-route-helpers";/,
   );
   assert.match(helperSource, /export function buildRunPath\(runId: string,\s*suffix\?: string\): string/);
   assert.match(helperSource, /const base = `\/api\/v1\/runs\/\$\{runId\}`;/);
   assert.match(helperSource, /return suffix \? `\$\{base\}\$\{suffix\}` : base;/);
-  assert.match(helperSource, /const search = new URL\(request\.url\)\.search;/);
-  assert.match(helperSource, /return proxy\(path\);/);
+  assert.match(helperSource, /return proxyRequestPathGet\(\{/);
+  assert.match(helperSource, /path:\s*buildRunPath\(args\.runId,\s*args\.suffix\),/);
 
   for (const [, routePath] of helperizedRunDetailRoutes) {
     const source = await readRouteSource(routePath);
@@ -818,7 +831,10 @@ test("workspace delivery helper keeps fallback GET contract and POST passthrough
   );
 
   assert.match(source, /import type \{ ControlPlaneWorkspaceDeliveryTrack \} from "@\/lib\/control-plane-types";/);
-  assert.match(source, /import \{ proxyFallbackGet \} from "\.\.\/\.\.\/fallback-route-helpers";/);
+  assert.match(
+    source,
+    /import \{ proxyWorkspaceScopedFallbackGet \} from "\.\.\/\.\.\/fallback-route-helpers";/,
+  );
   assert.match(source, /import \{ proxyControlPlane \} from "@\/lib\/control-plane-proxy";/);
   assert.match(source, /import \{ resolveWorkspaceContextForServer \} from "@\/lib\/workspace-context";/);
   assert.match(
@@ -835,15 +851,20 @@ test("workspace delivery helper keeps fallback GET contract and POST passthrough
   assert.match(source, /function buildFallbackMeta\(upstreamStatus: number\)/);
   assert.match(source, /request_id: "delivery-preview-unavailable"/);
   assert.match(source, /request_id: "delivery-preview-error"/);
+  assert.match(source, /const proxy = args\?\.proxy \?\? proxyWorkspaceScopedFallbackGet;/);
   assert.match(source, /return proxy\(\{/);
-  assert.match(source, /path:\s*buildDeliveryPath\(workspaceId\)/);
+  assert.match(
+    source,
+    /getPath:\s*\(workspaceContext\)\s*=>\s*buildDeliveryPath\(workspaceContext\.workspace\.workspace_id\)/,
+  );
   assert.match(source, /includeTenant:\s*true/);
   assert.match(
     source,
-    /buildFallback:\s*\(upstream\)\s*=>\s*\(\{\s*data:\s*buildDeliveryFallbackTrack\(workspaceId,\s*upstream\.status\),/s,
+    /buildFallback:\s*\(upstream,\s*workspaceContext\)\s*=>\s*\(\{\s*data:\s*buildDeliveryFallbackTrack\(workspaceContext\.workspace\.workspace_id,\s*upstream\.status\),/s,
   );
   assert.match(source, /meta:\s*buildFallbackMeta\(upstream\.status\)/);
   assert.match(source, /export async function proxyWorkspaceDeliveryGet\(args\?: \{/);
+  assert.match(source, /resolveWorkspaceContext:\s*args\?\.(?:resolveWorkspaceContext|resolveWorkspaceContext) \?\? resolveWorkspaceContextForServer/);
   assert.match(source, /export async function buildWorkspaceDeliveryPostInit\(request: Request\): Promise<RequestInit>/);
   assert.match(
     source,
@@ -852,7 +873,6 @@ test("workspace delivery helper keeps fallback GET contract and POST passthrough
   assert.match(source, /export async function proxyWorkspaceDeliveryPost\(/);
   assert.match(source, /resolveWorkspaceContext\?: typeof resolveWorkspaceContextForServer/);
   assert.match(source, /initBuilder\?: typeof buildWorkspaceDeliveryPostInit/);
-  assert.match(source, /workspaceContext,/);
   assert.match(source, /return proxyWorkspaceScopedDetailPost\(\{/);
   assert.match(source, /buildPath:\s*buildDeliveryPath/);
   assert.match(source, /includeTenant:\s*true/);
@@ -877,7 +897,7 @@ test("admin overview helper keeps includeTenant=false fallback summary contract"
     path.resolve(testDir, "../app/api/control-plane/admin/route-helpers.ts"),
   );
 
-  assert.match(source, /import \{ proxyFallbackGet \} from "\.\.\/fallback-route-helpers";/);
+  assert.match(source, /import \{ proxyPathFallbackGet \} from "\.\.\/fallback-route-helpers";/);
   assert.match(source, /export function buildAdminOverviewPath\(\): string/);
   assert.match(source, /return "\/api\/v1\/saas\/admin\/overview";/);
   assert.match(source, /export function buildAdminOverviewFallback\(\)/);
@@ -888,7 +908,7 @@ test("admin overview helper keeps includeTenant=false fallback summary contract"
   assert.match(source, /code: "admin_overview_preview_fallback"/);
   assert.match(source, /path: buildAdminOverviewPath\(\)/);
   assert.match(source, /export async function proxyAdminOverviewGet\(args\?: \{/);
-  assert.match(source, /const proxy = args\?\.proxy \?\? proxyFallbackGet;/);
+  assert.match(source, /const proxy = args\?\.proxy \?\? proxyPathFallbackGet;/);
   assert.match(source, /return proxy\(\{/);
   assert.match(source, /path: buildAdminOverviewPath\(\),/);
   assert.match(source, /includeTenant:\s*false/);

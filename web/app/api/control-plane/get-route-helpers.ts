@@ -13,6 +13,41 @@ export type WorkspaceScopedGetArgs = {
   init?: RequestInit;
 };
 
+export type PathGetArgs = {
+  path: string;
+  includeTenant?: boolean;
+  init?: RequestInit;
+};
+
+export function proxyPathGet(
+  args: PathGetArgs,
+  options?: {
+    proxy?: typeof proxyControlPlane;
+  },
+): Promise<Response> {
+  const proxy = options?.proxy ?? proxyControlPlane;
+  return proxy(args.path, {
+    includeTenant: args.includeTenant,
+    init: args.init,
+  });
+}
+
+export function proxyRequestPathGet(
+  args: PathGetArgs & {
+    request: Request;
+  },
+  options?: {
+    proxy?: typeof proxyControlPlane;
+  },
+): Promise<Response> {
+  const search = new URL(args.request.url).search;
+  return proxyPathGet({
+    path: search ? `${args.path}${search}` : args.path,
+    includeTenant: args.includeTenant,
+    init: args.init,
+  }, options);
+}
+
 export function proxyWorkspaceContextGet(
   args: WorkspaceScopedGetArgs & {
     workspaceContext: WorkspaceContext;

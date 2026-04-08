@@ -5,7 +5,7 @@ import {
   buildProxyControlPlanePostInit,
   proxyWorkspaceScopedDetailPost,
 } from "../post-route-helpers";
-import { proxyFallbackGet } from "../../fallback-route-helpers";
+import { proxyWorkspaceScopedFallbackGet } from "../../fallback-route-helpers";
 
 const DELIVERY_SUFFIX = "/delivery";
 
@@ -72,21 +72,18 @@ export async function buildWorkspaceDeliveryPostInit(request: Request): Promise<
 
 export async function proxyWorkspaceDeliveryGet(args?: {
   resolveWorkspaceContext?: typeof resolveWorkspaceContextForServer;
-  proxy?: typeof proxyFallbackGet;
+  proxy?: typeof proxyWorkspaceScopedFallbackGet;
 }): Promise<Response> {
-  const resolveContext = args?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
-  const proxy = args?.proxy ?? proxyFallbackGet;
-  const workspaceContext = await resolveContext();
-  const workspaceId = workspaceContext.workspace.workspace_id;
-
+  const proxy = args?.proxy ?? proxyWorkspaceScopedFallbackGet;
   return proxy({
-    path: buildDeliveryPath(workspaceId),
+    getPath: (workspaceContext) => buildDeliveryPath(workspaceContext.workspace.workspace_id),
     includeTenant: true,
-    workspaceContext,
-    buildFallback: (upstream) => ({
-      data: buildDeliveryFallbackTrack(workspaceId, upstream.status),
+    buildFallback: (upstream, workspaceContext) => ({
+      data: buildDeliveryFallbackTrack(workspaceContext.workspace.workspace_id, upstream.status),
       meta: buildFallbackMeta(upstream.status),
     }),
+  }, {
+    resolveWorkspaceContext: args?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer,
   });
 }
 

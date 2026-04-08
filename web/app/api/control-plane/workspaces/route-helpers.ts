@@ -8,6 +8,8 @@ export type WorkspaceBootstrapHeaderContext = {
   tenant_id: string;
 };
 
+type ProxyControlPlaneFn = typeof proxyControlPlane;
+
 export function buildForwardedAuthHeaders(request: Request): Headers {
   const headers = new Headers();
   const forwardedSubject =
@@ -40,6 +42,21 @@ export function buildWorkspaceBootstrapPath(workspaceId: string): string {
   return `${WORKSPACES_BASE_PATH}/${workspaceId}/bootstrap`;
 }
 
+export async function proxyWorkspaceTenantlessPost(args: {
+  request: Request;
+  path: string;
+}, options: {
+  proxy?: ProxyControlPlaneFn;
+  initBuilder: (request: Request) => Promise<RequestInit>;
+}): Promise<Response> {
+  const proxy = options.proxy ?? proxyControlPlane;
+
+  return proxy(args.path, {
+    includeTenant: false,
+    init: await options.initBuilder(args.request),
+  });
+}
+
 export async function buildWorkspaceBootstrapProxyInit(
   request: Request,
   args: {
@@ -69,16 +86,18 @@ export async function buildWorkspaceBootstrapProxyInit(
 export async function proxyWorkspaceCreatePost(
   request: Request,
   options?: {
-    proxy?: typeof proxyControlPlane;
+    proxy?: ProxyControlPlaneFn;
     initBuilder?: typeof buildWorkspaceCreateProxyInit;
   },
 ): Promise<Response> {
-  const proxy = options?.proxy ?? proxyControlPlane;
   const initBuilder = options?.initBuilder ?? buildWorkspaceCreateProxyInit;
 
-  return proxy(WORKSPACES_BASE_PATH, {
-    includeTenant: false,
-    init: await initBuilder(request),
+  return proxyWorkspaceTenantlessPost({
+    request,
+    path: WORKSPACES_BASE_PATH,
+  }, {
+    proxy: options?.proxy,
+    initBuilder,
   });
 }
 
@@ -90,19 +109,21 @@ export async function proxyWorkspaceBootstrapPost(
   },
   options?: {
     resolveWorkspaceContext?: () => Promise<{ workspace: WorkspaceBootstrapHeaderContext }>;
-    proxy?: typeof proxyControlPlane;
+    proxy?: ProxyControlPlaneFn;
     initBuilder?: typeof buildWorkspaceBootstrapProxyInit;
   },
 ): Promise<Response> {
   const resolveWorkspaceContext =
     options?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
-  const proxy = options?.proxy ?? proxyControlPlane;
   const initBuilder = options?.initBuilder ?? buildWorkspaceBootstrapProxyInit;
   const currentWorkspace = args.currentWorkspace ?? (await resolveWorkspaceContext()).workspace;
 
-  return proxy(buildWorkspaceBootstrapPath(args.workspaceId), {
-    includeTenant: false,
-    init: await initBuilder(request, {
+  return proxyWorkspaceTenantlessPost({
+    request,
+    path: buildWorkspaceBootstrapPath(args.workspaceId),
+  }, {
+    proxy: options?.proxy,
+    initBuilder: (request) => initBuilder(request, {
       workspaceId: args.workspaceId,
       currentWorkspace,
     }),

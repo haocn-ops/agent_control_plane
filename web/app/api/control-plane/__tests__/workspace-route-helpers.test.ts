@@ -6,8 +6,9 @@ import {
   buildWorkspaceBootstrapPath,
   buildWorkspaceBootstrapProxyInit,
   buildWorkspaceCreateProxyInit,
-  proxyWorkspaceCreatePost,
   proxyWorkspaceBootstrapPost,
+  proxyWorkspaceCreatePost,
+  proxyWorkspaceTenantlessPost,
 } from "../workspaces/route-helpers";
 
 test("buildWorkspaceBootstrapPath composes workspace bootstrap endpoint", () => {
@@ -129,6 +130,43 @@ test("proxyWorkspaceCreatePost keeps includeTenant=false and uses injected proxy
       method: "POST",
       body: '{"slug":"acme"}',
     }),
+    {
+      initBuilder: async () => ({
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: '{"slug":"acme"}',
+      }),
+      proxy: async (path, options) => {
+        capturedPath = path;
+        capturedOptions = options;
+        return response;
+      },
+    },
+  );
+
+  assert.equal(result, response);
+  assert.equal(capturedPath, "/api/v1/saas/workspaces");
+  assert.equal(capturedOptions?.includeTenant, false);
+  assert.equal(capturedOptions?.init?.method, "POST");
+  assert.equal(new Headers(capturedOptions?.init?.headers).get("content-type"), "application/json");
+  assert.equal(capturedOptions?.init?.body, '{"slug":"acme"}');
+});
+
+test("proxyWorkspaceTenantlessPost keeps includeTenant=false and delegates init builder output", async () => {
+  let capturedPath = "";
+  let capturedOptions: { includeTenant?: boolean; init?: RequestInit } | undefined;
+  const response = new Response(null, { status: 202 });
+
+  const result = await proxyWorkspaceTenantlessPost(
+    {
+      request: new Request("https://example.com", {
+        method: "POST",
+        body: '{"slug":"acme"}',
+      }),
+      path: "/api/v1/saas/workspaces",
+    },
     {
       initBuilder: async () => ({
         method: "POST",

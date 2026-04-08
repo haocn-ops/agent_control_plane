@@ -1,4 +1,4 @@
-import { proxyFallbackGet } from "../fallback-route-helpers";
+import { proxyPathFallbackGet } from "../fallback-route-helpers";
 
 export function buildAdminOverviewPath(): string {
   return "/api/v1/saas/admin/overview";
@@ -149,9 +149,9 @@ export function buildAdminOverviewFallback() {
 }
 
 export async function proxyAdminOverviewGet(args?: {
-  proxy?: typeof proxyFallbackGet;
+  proxy?: typeof proxyPathFallbackGet;
 }): Promise<Response> {
-  const proxy = args?.proxy ?? proxyFallbackGet;
+  const proxy = args?.proxy ?? proxyPathFallbackGet;
 
   return proxy({
     path: buildAdminOverviewPath(),

@@ -3,9 +3,70 @@ import test from "node:test";
 
 import {
   proxyMetadataGet,
+  proxyPathGet,
+  proxyRequestPathGet,
   proxyWorkspaceContextGet,
   proxyWorkspaceScopedGet,
 } from "../get-route-helpers";
+
+test("proxyPathGet forwards path includeTenant and init through injected proxy", async () => {
+  let capturedPath = "";
+  let capturedIncludeTenant: boolean | undefined;
+  let capturedInit: RequestInit | undefined;
+
+  const response = await proxyPathGet(
+    {
+      path: "/api/v1/health",
+      includeTenant: false,
+      init: {
+        method: "GET",
+        headers: {
+          accept: "application/json",
+        },
+      },
+    },
+    {
+      proxy: async (path, options) => {
+        capturedPath = path;
+        capturedIncludeTenant = options?.includeTenant;
+        capturedInit = options?.init;
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+  );
+
+  assert.equal(capturedPath, "/api/v1/health");
+  assert.equal(capturedIncludeTenant, false);
+  assert.equal(capturedInit?.method, "GET");
+  assert.equal(new Headers(capturedInit?.headers).get("accept"), "application/json");
+  assert.equal(response.status, 200);
+});
+
+test("proxyRequestPathGet appends request search params before delegating", async () => {
+  let capturedPath = "";
+
+  const response = await proxyRequestPathGet(
+    {
+      request: new Request("https://example.com/api/runs/run_123/events?cursor=abc"),
+      path: "/api/v1/runs/run_123/events",
+    },
+    {
+      proxy: async (path) => {
+        capturedPath = path;
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    },
+  );
+
+  assert.equal(capturedPath, "/api/v1/runs/run_123/events?cursor=abc");
+  assert.equal(response.status, 200);
+});
 
 test("proxyWorkspaceContextGet forwards an already resolved workspace context", async () => {
   let capturedPath = "";

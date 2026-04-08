@@ -1,4 +1,7 @@
-import { proxyControlPlane } from "@/lib/control-plane-proxy";
+import type { proxyControlPlane } from "@/lib/control-plane-proxy";
+import { proxyPathGet } from "./get-route-helpers";
+
+type ProxyControlPlaneFn = typeof proxyControlPlane;
 
 const HEALTH_PATH = "/api/v1/health";
 
@@ -7,8 +10,12 @@ export function buildHealthPath(): string {
 }
 
 export async function proxyHealthGet(args?: {
-  proxy?: typeof proxyControlPlane;
+  proxy?: ProxyControlPlaneFn;
 }): Promise<Response> {
-  const proxy = args?.proxy ?? proxyControlPlane;
-  return proxy(buildHealthPath(), { includeTenant: false });
+  return proxyPathGet({
+    path: buildHealthPath(),
+    includeTenant: false,
+  }, {
+    proxy: args?.proxy,
+  });
 }
