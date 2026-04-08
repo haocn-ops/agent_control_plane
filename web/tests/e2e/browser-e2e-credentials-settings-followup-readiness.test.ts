@@ -23,6 +23,103 @@ const expectedSpecTitlePatterns = [
   /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> go-live -> admin keeps readiness browser continuity/,
 ] as const;
 
+const smokeExpectations = [
+  {
+    path: "tests/browser/admin-readiness-credentials-onboarding-usage-settings-return.smoke.spec.ts",
+    requiredPatterns: [
+      /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> admin keeps readiness browser continuity/,
+      /\/admin\?week8_focus=credentials&attention_organization=org_preview&attention_workspace=preview/,
+      /SaaS admin overview/,
+      /Drill-down active: Credentials/,
+      /Open onboarding flow/,
+      /\/onboarding\?/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /Admin follow-up context/,
+      /Launch lane context/,
+      /Focus Credentials/,
+      /Step 5: Confirm usage window/,
+      /\/usage\\\?/,
+      /Workspace usage and plan posture/,
+      /Review plan limits in Settings/,
+      /\/settings\?/,
+      /intent=manage-plan/,
+      /Workspace configuration/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+    ],
+  },
+  {
+    path: "tests/browser/admin-readiness-credentials-onboarding-usage-settings-verification-return.smoke.spec.ts",
+    requiredPatterns: [
+      /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> verification -> admin keeps readiness browser continuity/,
+      /\/admin\?week8_focus=credentials&attention_organization=org_preview&attention_workspace=preview/,
+      /SaaS admin overview/,
+      /Drill-down active: Credentials/,
+      /Open onboarding flow/,
+      /\/onboarding\?/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /Step 5: Confirm usage window/,
+      /\/usage\\\?/,
+      /Workspace usage and plan posture/,
+      /\/settings\?/,
+      /intent=manage-plan/,
+      /Workspace configuration/,
+      /Capture verification evidence/,
+      /\/verification\\\?/,
+      /surface=verification/,
+      /Week 8 launch checklist/,
+      /Admin follow-up context/,
+      /Focus Credentials/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+    ],
+  },
+  {
+    path: "tests/browser/admin-readiness-credentials-onboarding-usage-settings-go-live-return.smoke.spec.ts",
+    requiredPatterns: [
+      /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> go-live -> admin keeps readiness browser continuity/,
+      /\/admin\?week8_focus=credentials&attention_organization=org_preview&attention_workspace=preview/,
+      /SaaS admin overview/,
+      /Drill-down active: Credentials/,
+      /Open onboarding flow/,
+      /\/onboarding\?/,
+      /source=admin-readiness/,
+      /week8_focus=credentials/,
+      /attention_workspace=preview/,
+      /attention_organization=org_preview/,
+      /Step 5: Confirm usage window/,
+      /\/usage\\\?/,
+      /Workspace usage and plan posture/,
+      /\/settings\?/,
+      /intent=manage-plan/,
+      /Workspace configuration/,
+      /Rehearse go-live readiness/,
+      /\/go-live\\\?/,
+      /surface=go_live/,
+      /Mock go-live drill/,
+      /Admin follow-up context/,
+      /Focus Credentials/,
+      /Return to admin readiness view/,
+      /\/admin\\\?/,
+      /readiness_returned=1/,
+      /Returned from Week 8 readiness/,
+      /Focus restored/,
+    ],
+  },
+] as const;
+
 test("credentials settings follow-up browser batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -72,3 +169,13 @@ test("credentials settings follow-up browser batch stays wired into scripts and 
     assert.match(source, /intent=manage-plan/);
   }
 });
+
+for (const spec of smokeExpectations) {
+  test(`credentials settings follow-up smoke keeps ${spec.path} explicit without overstating coverage`, async () => {
+    const source = await readFile(path.resolve(webDir, spec.path), "utf8");
+
+    for (const pattern of spec.requiredPatterns) {
+      assert.match(source, pattern);
+    }
+  });
+}
