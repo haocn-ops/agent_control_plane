@@ -89,6 +89,7 @@ export default async function ArtifactsPage({
     runId: activeRunId,
   });
   const adminHref = adminLinkState.adminHref;
+  const adminHandoffActionsHref = "#artifacts-admin-handoff";
 
   return (
     <div className="space-y-8">
@@ -136,13 +137,14 @@ export default async function ArtifactsPage({
           <p>
             Artifacts finalize the evidence relay. Reopen the Latest export receipt from{" "}
             <code className="font-mono">/settings?intent=upgrade</code> so the filename, filters, and SHA-256 stay
-            referenced across verification, go-live, and the returned admin handoff while you inspect bundles here.
+            referenced across verification, go-live, and the{" "}
+            <Link href={adminHandoffActionsHref}>returned admin handoff</Link> while you inspect bundles here.
           </p>
           <p className="text-xs text-muted">
             Navigation-only manual relay: these links preserve the workspace context but do not automatically attach the
             receipt or close rollout steps for you.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div id="artifacts-admin-handoff" className="flex flex-wrap gap-2">
             <Link
               href={buildConsoleRunAwareHandoffHref("/settings?intent=upgrade", runAwareHandoff, activeRunId)}
               className="inline-flex items-center rounded-xl border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition hover:bg-background/60"

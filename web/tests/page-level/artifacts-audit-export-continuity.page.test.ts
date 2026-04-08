@@ -22,12 +22,14 @@ test("artifacts page keeps audit export continuity callout", async () => {
   );
   assert.match(source, /const runAwareHandoff = \{ \.\.\.handoff, runId: activeRunId \};/);
   assert.match(source, /const adminHref = adminLinkState\.adminHref;/);
+  assert.match(source, /const adminHandoffActionsHref = "#artifacts-admin-handoff";/);
   assert.match(source, /Audit export continuity/);
   assert.match(source, /Reopen the Latest export receipt from/);
   assert.match(source, /<code className="font-mono">\/settings\?intent=upgrade<\/code>/);
   assert.match(source, /filename, filters, and SHA-256/);
-  assert.match(source, /verification, go-live, and the returned admin handoff/);
+  assert.match(source, /verification, go-live, and the\{" "\}\s*<Link href=\{adminHandoffActionsHref\}>returned admin handoff<\/Link>/);
   assert.match(source, /Navigation-only manual relay/);
+  assert.match(source, /<div id="artifacts-admin-handoff" className="flex flex-wrap gap-2">/);
   assert.match(source, /Reopen audit export receipt/);
   assert.match(source, /Confirm verification evidence/);
   assert.match(source, /Reopen go-live drill/);
