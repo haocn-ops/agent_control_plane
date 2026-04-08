@@ -490,6 +490,7 @@ export function WorkspaceLaunchpad({
     recentOwnerDisplayName,
     recentOwnerEmail,
   };
+  const adminReturnActionsHref = "#launchpad-admin-return-actions";
 
   function buildLaunchpadHref(pathname: string): string {
     return buildVerificationChecklistHandoffHref({ pathname, ...handoffHrefArgs, runId: activeRunId });
@@ -512,7 +513,11 @@ export function WorkspaceLaunchpad({
               This remains navigation-only context. It does not impersonate a member, trigger support automation, or
               auto-resolve readiness issues for you.
             </p>
-            <div className="flex flex-wrap gap-2">
+            <p>
+              Use the <Link href={adminReturnActionsHref}>admin return action below</Link> after you finish the
+              launchpad follow-up on this workspace.
+            </p>
+            <div id="launchpad-admin-return-actions" className="flex flex-wrap gap-2">
               {adminReturnHref ? (
                 <Link
                   href={adminReturnHref}

@@ -81,6 +81,7 @@ test("launchpad and dashboard keep session-aware launch hub guidance", async () 
   assert.match(launchpadSource, /const showAdminAttention = normalizedSource === "admin-attention";/);
   assert.match(launchpadSource, /const showAdminReadiness = normalizedSource === "admin-readiness";/);
   assert.match(launchpadSource, /const adminReturnLabel = showAdminAttention \? "Return to admin queue" : "Return to admin readiness view";/);
+  assert.match(launchpadSource, /const adminReturnActionsHref = "#launchpad-admin-return-actions";/);
   assert.match(launchpadSource, /const adminReturnHref =/);
   assert.match(launchpadSource, /buildAdminReturnHref\("\/admin", \{[\s\S]*runId: activeRunId,/);
   assert.match(launchpadSource, /function buildLaunchpadHref\(pathname: string\): string \{/);
@@ -89,6 +90,8 @@ test("launchpad and dashboard keep session-aware launch hub guidance", async () 
   assert.match(launchpadSource, /return buildVerificationChecklistHandoffHref\(\{ pathname, \.\.\.handoffHrefArgs, runId: activeRunId \}\);/);
   assert.match(launchpadSource, /<CardTitle>\{showAdminAttention \? "Admin attention follow-up" : "Admin readiness follow-up"\}<\/CardTitle>/);
   assert.match(launchpadSource, /This remains navigation-only context\./);
+  assert.match(launchpadSource, /<Link href=\{adminReturnActionsHref\}>admin return action below<\/Link>/);
+  assert.match(launchpadSource, /<div id="launchpad-admin-return-actions" className="flex flex-wrap gap-2">/);
   assert.match(launchpadSource, /Return to admin queue/);
   assert.match(launchpadSource, /Return to admin readiness view/);
   assert.match(launchpadSource, /<CardTitle>Manual launch state machine<\/CardTitle>/);
