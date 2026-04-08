@@ -18,6 +18,78 @@ const specs = [
   "tests/browser/members-accept-invitation-static.smoke.spec.ts",
 ] as const;
 
+const smokeExpectations = [
+  {
+    path: "tests/browser/onboarding-members-accept-invitation.smoke.spec.ts",
+    requiredPatterns: [
+      /onboarding -> members -> accept-invitation keeps readiness browser continuity/,
+      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /Launch lane context/,
+      /Workspace access/,
+      /Manual onboarding handoff/,
+      /Open accept-invitation/,
+      /Accept workspace invitation/,
+      /Token guidance/,
+      /Accept invitation/,
+      /\/session/,
+      /source=admin-readiness/,
+      /recent_owner_display_name=Avery(?:\\\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+    ],
+  },
+  {
+    path: "tests/browser/onboarding-accept-invitation-session-return.smoke.spec.ts",
+    requiredPatterns: [
+      /onboarding -> accept-invitation, then return -> session keeps invite continuity/,
+      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /Launch lane context/,
+      /Open accept-invitation/,
+      /Accept workspace invitation/,
+      /Token guidance/,
+      /Accept invitation/,
+      /\/session/,
+      /page\.goBack\(\)/,
+      /\/session\\\?/,
+      /source=admin-readiness/,
+      /recent_owner_display_name=Avery(?:\\\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+    ],
+  },
+  {
+    path: "tests/browser/onboarding-accept-invitation-static.smoke.spec.ts",
+    requiredPatterns: [
+      /onboarding -> accept-invitation keeps invite-to-accept static cues/,
+      /\/onboarding\?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_demo&delivery_context=week8&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery\.ops%40govrail\.test/,
+      /Launch lane context/,
+      /Open accept-invitation/,
+      /Accept workspace invitation/,
+      /Token guidance/,
+      /Accept invitation/,
+      /\/session/,
+      /source=admin-readiness/,
+      /recent_owner_display_name=Avery(?:\\\+|%20)Ops/,
+      /recent_owner_email=avery\.ops(?:%40|@)govrail\.test/,
+    ],
+  },
+  {
+    path: "tests/browser/members-accept-invitation-static.smoke.spec.ts",
+    requiredPatterns: [
+      /members -> accept-invitation keeps static redemption cues and continuity/,
+      /\/members\?source=onboarding&attention_workspace=preview&attention_organization=org_preview&delivery_context=recent_activity&recent_track_key=verification&recent_update_kind=verification&evidence_count=2&recent_owner_label=Owner&recent_owner_display_name=Preview%20Owner&recent_owner_email=preview\.owner%40govrail\.test/,
+      /Workspace access/,
+      /Manual onboarding handoff/,
+      /Open accept-invitation/,
+      /Accept workspace invitation/,
+      /Token guidance/,
+      /Accept invitation/,
+      /\/session/,
+      /source=onboarding/,
+      /recent_owner_display_name=Preview(?:\\\+|%20)Owner/,
+      /recent_owner_email=preview\.owner(?:%40|@)govrail\.test/,
+    ],
+  },
+] as const;
+
 test("accept-invitation entry continuity batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -52,3 +124,13 @@ test("accept-invitation entry continuity batch stays wired into scripts and docs
   assert.match(executionPlan, /accept-invitation-entry-continuity/);
   assert.match(executionPlan, /onboarding -> accept-invitation \(static\)/);
 });
+
+for (const spec of smokeExpectations) {
+  test(`accept-invitation entry continuity smoke keeps ${spec.path} explicit without overstating coverage`, async () => {
+    const source = await readFile(path.resolve(webDir, spec.path), "utf8");
+
+    for (const pattern of spec.requiredPatterns) {
+      assert.match(source, pattern);
+    }
+  });
+}
