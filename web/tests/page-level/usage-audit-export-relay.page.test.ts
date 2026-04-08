@@ -15,16 +15,29 @@ test("usage dashboard keeps audit export continuity lane explicit", async () => 
   const source = await readSource(usageDashboardPath);
 
   assert.match(source, /import \{ buildAdminReturnHref, buildVerificationChecklistHandoffHref \} from "@\/lib\/handoff-query";/);
+  assert.match(source, /import \{ AuditExportReceiptCallout \} from "@\/components\/audit-export-receipt-callout";/);
+  assert.match(source, /import \{ resolveAuditExportReceiptSummary \} from "@\/lib\/audit-export-receipt";/);
   assert.match(source, /type DeliveryContext = "recent_activity" \| "week8";/);
   assert.match(source, /return value === "recent_activity" \|\| value === "week8" \? value : null;/);
+  assert.match(source, /auditReceiptFilename\?: string \| null;/);
+  assert.match(source, /auditReceiptExportedAt\?: string \| null;/);
+  assert.match(source, /auditReceiptFromDate\?: string \| null;/);
+  assert.match(source, /auditReceiptToDate\?: string \| null;/);
+  assert.match(source, /auditReceiptSha256\?: string \| null;/);
   assert.match(source, /const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>\[0], "pathname"> = \{/);
   assert.match(
     source,
-    /const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>\[0], "pathname"> = \{[\s\S]*source: normalizedSource,[\s\S]*week8Focus,[\s\S]*attentionWorkspace,[\s\S]*attentionOrganization,[\s\S]*deliveryContext: normalizeDeliveryContext\(deliveryContext\),[\s\S]*recentTrackKey: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*recentUpdateKind: normalizeRecentUpdateKind\(recentUpdateKind\),[\s\S]*evidenceCount,[\s\S]*recentOwnerLabel,[\s\S]*recentOwnerDisplayName,[\s\S]*recentOwnerEmail,[\s\S]*\};/s,
+    /const handoffHrefArgs: Omit<Parameters<typeof buildVerificationChecklistHandoffHref>\[0], "pathname"> = \{[\s\S]*source: normalizedSource,[\s\S]*week8Focus,[\s\S]*attentionWorkspace,[\s\S]*attentionOrganization,[\s\S]*deliveryContext: normalizeDeliveryContext\(deliveryContext\),[\s\S]*recentTrackKey: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*recentUpdateKind: normalizeRecentUpdateKind\(recentUpdateKind\),[\s\S]*evidenceCount,[\s\S]*recentOwnerLabel,[\s\S]*recentOwnerDisplayName,[\s\S]*recentOwnerEmail,[\s\S]*auditReceiptFilename,[\s\S]*auditReceiptExportedAt,[\s\S]*auditReceiptFromDate,[\s\S]*auditReceiptToDate,[\s\S]*auditReceiptSha256,[\s\S]*\};/s,
   );
   assert.match(source, /const latestDemoRun = onboardingState\?\.latest_demo_run \?\? null;/);
   assert.match(source, /runId\?: string \| null;/);
   assert.match(source, /const activeRunId = latestDemoRun\?\.run_id \?\? runId \?\? null;/);
+  assert.match(source, /const auditExportReceipt = resolveAuditExportReceiptSummary\(\{/);
+  assert.match(source, /auditReceiptFilename,/);
+  assert.match(source, /auditReceiptExportedAt,/);
+  assert.match(source, /auditReceiptFromDate,/);
+  assert.match(source, /auditReceiptToDate,/);
+  assert.match(source, /auditReceiptSha256,/);
   assert.match(
     source,
     /const buildRunAwareUsageHref = \(pathname: string\): string =>\s*buildVerificationChecklistHandoffHref\(\{ pathname, \.\.\.handoffHrefArgs, runId: activeRunId \}\);/s,
@@ -36,7 +49,7 @@ test("usage dashboard keeps audit export continuity lane explicit", async () => 
   assert.match(source, /const adminHref = buildAdminReturnHref\("\/admin", \{/);
   assert.match(
     source,
-    /const adminHref = buildAdminReturnHref\("\/admin", \{[\s\S]*source: normalizedSource,[\s\S]*runId: activeRunId,[\s\S]*queueSurface: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*week8Focus,[\s\S]*attentionWorkspace: attentionWorkspace \?\? workspaceSlug,[\s\S]*attentionOrganization,[\s\S]*deliveryContext: normalizeDeliveryContext\(deliveryContext\),[\s\S]*recentTrackKey: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*recentUpdateKind: normalizeRecentUpdateKind\(recentUpdateKind\),[\s\S]*evidenceCount,[\s\S]*recentOwnerLabel,[\s\S]*recentOwnerDisplayName,[\s\S]*recentOwnerEmail,[\s\S]*\}\);/s,
+    /const adminHref = buildAdminReturnHref\("\/admin", \{[\s\S]*source: normalizedSource,[\s\S]*runId: activeRunId,[\s\S]*queueSurface: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*week8Focus,[\s\S]*attentionWorkspace: attentionWorkspace \?\? workspaceSlug,[\s\S]*attentionOrganization,[\s\S]*deliveryContext: normalizeDeliveryContext\(deliveryContext\),[\s\S]*recentTrackKey: normalizeRecentTrackKey\(recentTrackKey\),[\s\S]*recentUpdateKind: normalizeRecentUpdateKind\(recentUpdateKind\),[\s\S]*evidenceCount,[\s\S]*recentOwnerLabel,[\s\S]*recentOwnerDisplayName,[\s\S]*recentOwnerEmail,[\s\S]*auditReceiptFilename,[\s\S]*auditReceiptExportedAt,[\s\S]*auditReceiptFromDate,[\s\S]*auditReceiptToDate,[\s\S]*auditReceiptSha256,[\s\S]*\}\);/s,
   );
   assert.match(source, /const adminReturnLabel =/);
   assert.match(
@@ -54,6 +67,11 @@ test("usage dashboard keeps audit export continuity lane explicit", async () => 
     source,
     /Usage verifies the run, but the same Latest export receipt \(filename, filters, SHA-256\) from \/settings[\s\S]*needs to show up again in verification and the admin handoff/,
   );
+  assert.match(source, /<AuditExportReceiptCallout[\s\S]*shared evidence thread/s);
+  assert.match(
+    source,
+    /Carry the same receipt through usage, verification, go-live, and admin follow-up so every surface cites one shared evidence thread\./,
+  );
   assert.match(source, /<CardTitle>Evidence relay<\/CardTitle>/);
   assert.match(source, /href=\{verificationHref\}[\s\S]*Capture verification evidence/s);
   assert.match(source, /href=\{artifactsHref\}[\s\S]*Review artifacts/s);
@@ -63,6 +81,7 @@ test("usage dashboard keeps audit export continuity lane explicit", async () => 
   assert.match(source, /Reopen audit export receipt/);
   assert.match(source, /Reopen verification evidence/);
   assert.match(source, /<CardTitle>Audit export continuity<\/CardTitle>[\s\S]*href=\{adminHref\}[\s\S]*\{adminReturnLabel\}/s);
+  assert.match(source, /auditExportReceipt \? \(/);
   assert.match(source, /admin-attention/);
   assert.match(source, /Return to admin queue/);
   assert.match(source, /Return to admin readiness view/);

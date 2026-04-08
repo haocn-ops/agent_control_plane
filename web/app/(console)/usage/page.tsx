@@ -252,6 +252,11 @@ export default async function UsagePage({
         recentOwnerLabel={handoff.recentOwnerLabel}
         recentOwnerDisplayName={handoff.recentOwnerDisplayName}
         recentOwnerEmail={handoff.recentOwnerEmail}
+        auditReceiptFilename={handoff.auditReceiptFilename}
+        auditReceiptExportedAt={handoff.auditReceiptExportedAt}
+        auditReceiptFromDate={handoff.auditReceiptFromDate}
+        auditReceiptToDate={handoff.auditReceiptToDate}
+        auditReceiptSha256={handoff.auditReceiptSha256}
       />
     </div>
   );

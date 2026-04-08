@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
+import { AuditExportReceiptCallout } from "@/components/audit-export-receipt-callout";
 import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { resolveAuditExportReceiptSummary } from "@/lib/audit-export-receipt";
 import { buildAdminReturnHref, buildVerificationChecklistHandoffHref } from "@/lib/handoff-query";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
 
@@ -338,6 +340,11 @@ export function WorkspaceUsageDashboard({
   recentOwnerLabel,
   recentOwnerDisplayName,
   recentOwnerEmail,
+  auditReceiptFilename,
+  auditReceiptExportedAt,
+  auditReceiptFromDate,
+  auditReceiptToDate,
+  auditReceiptSha256,
 }: {
   workspaceSlug: string;
   source?: string | null;
@@ -352,6 +359,11 @@ export function WorkspaceUsageDashboard({
   recentOwnerLabel?: string | null;
   recentOwnerDisplayName?: string | null;
   recentOwnerEmail?: string | null;
+  auditReceiptFilename?: string | null;
+  auditReceiptExportedAt?: string | null;
+  auditReceiptFromDate?: string | null;
+  auditReceiptToDate?: string | null;
+  auditReceiptSha256?: string | null;
 }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["workspace-usage-dashboard", workspaceSlug],
@@ -390,9 +402,21 @@ export function WorkspaceUsageDashboard({
     recentOwnerLabel,
     recentOwnerDisplayName,
     recentOwnerEmail,
+    auditReceiptFilename,
+    auditReceiptExportedAt,
+    auditReceiptFromDate,
+    auditReceiptToDate,
+    auditReceiptSha256,
   };
   const buildRunAwareUsageHref = (pathname: string): string =>
     buildVerificationChecklistHandoffHref({ pathname, ...handoffHrefArgs, runId: activeRunId });
+  const auditExportReceipt = resolveAuditExportReceiptSummary({
+    auditReceiptFilename,
+    auditReceiptExportedAt,
+    auditReceiptFromDate,
+    auditReceiptToDate,
+    auditReceiptSha256,
+  });
 
   const workspace = data?.workspace;
   const plan = data?.plan;
@@ -425,6 +449,11 @@ export function WorkspaceUsageDashboard({
     recentOwnerLabel,
     recentOwnerDisplayName,
     recentOwnerEmail,
+    auditReceiptFilename,
+    auditReceiptExportedAt,
+    auditReceiptFromDate,
+    auditReceiptToDate,
+    auditReceiptSha256,
   });
   const adminReturnLabel =
     normalizedSource === "admin-attention"
@@ -547,6 +576,13 @@ export function WorkspaceUsageDashboard({
             Navigation-only manual relay: these links preserve workspace context but do not auto-attach the receipt or
             resolve rollout issues for you.
           </p>
+          {auditExportReceipt ? (
+            <AuditExportReceiptCallout
+              receipt={auditExportReceipt}
+              title="Audit export continuity"
+              description="Carry the same receipt through usage, verification, go-live, and admin follow-up so every surface cites one shared evidence thread."
+            />
+          ) : null}
         </CardContent>
       </Card>
       {contextCard ? (

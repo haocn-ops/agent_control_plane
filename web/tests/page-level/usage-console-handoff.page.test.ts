@@ -61,6 +61,11 @@ test("usage page keeps explicit admin-return, evidence-loop, and dashboard hando
   assert.match(source, /href=\{buildRunAwareUsagePageHref\("\/playground"\)\}[\s\S]*Go to playground run/s);
   assert.match(source, /const verificationEvidenceHref = buildVerificationChecklistHandoffHref\(\{/);
   assert.match(source, /pathname: "\/verification\?surface=verification"/);
+  assert.match(source, /auditReceiptFilename=\{handoff\.auditReceiptFilename\}/);
+  assert.match(source, /auditReceiptExportedAt=\{handoff\.auditReceiptExportedAt\}/);
+  assert.match(source, /auditReceiptFromDate=\{handoff\.auditReceiptFromDate\}/);
+  assert.match(source, /auditReceiptToDate=\{handoff\.auditReceiptToDate\}/);
+  assert.match(source, /auditReceiptSha256=\{handoff\.auditReceiptSha256\}/);
 
   assert.match(source, /<CardTitle>Evidence loop follow-through<\/CardTitle>/);
   assert.match(source, /const artifactsEvidenceHref = buildVerificationChecklistHandoffHref\(\{/);
@@ -70,6 +75,6 @@ test("usage page keeps explicit admin-return, evidence-loop, and dashboard hando
 
   assert.match(
     source,
-    /<WorkspaceUsageDashboard[\s\S]*workspaceSlug=\{workspaceContext\.workspace\.slug\}[\s\S]*source=\{handoff\.source\}[\s\S]*runId=\{activeRunId\}[\s\S]*week8Focus=\{handoff\.week8Focus\}[\s\S]*attentionWorkspace=\{handoff\.attentionWorkspace\}[\s\S]*attentionOrganization=\{handoff\.attentionOrganization\}[\s\S]*deliveryContext=\{handoff\.deliveryContext\}[\s\S]*recentTrackKey=\{handoff\.recentTrackKey\}[\s\S]*recentUpdateKind=\{handoff\.recentUpdateKind\}[\s\S]*evidenceCount=\{handoff\.evidenceCount\}[\s\S]*recentOwnerLabel=\{handoff\.recentOwnerLabel\}[\s\S]*recentOwnerDisplayName=\{handoff\.recentOwnerDisplayName\}[\s\S]*recentOwnerEmail=\{handoff\.recentOwnerEmail\}/,
+    /<WorkspaceUsageDashboard[\s\S]*workspaceSlug=\{workspaceContext\.workspace\.slug\}[\s\S]*source=\{handoff\.source\}[\s\S]*runId=\{activeRunId\}[\s\S]*week8Focus=\{handoff\.week8Focus\}[\s\S]*attentionWorkspace=\{handoff\.attentionWorkspace\}[\s\S]*attentionOrganization=\{handoff\.attentionOrganization\}[\s\S]*deliveryContext=\{handoff\.deliveryContext\}[\s\S]*recentTrackKey=\{handoff\.recentTrackKey\}[\s\S]*recentUpdateKind=\{handoff\.recentUpdateKind\}[\s\S]*evidenceCount=\{handoff\.evidenceCount\}[\s\S]*recentOwnerLabel=\{handoff\.recentOwnerLabel\}[\s\S]*recentOwnerDisplayName=\{handoff\.recentOwnerDisplayName\}[\s\S]*recentOwnerEmail=\{handoff\.recentOwnerEmail\}[\s\S]*auditReceiptFilename=\{handoff\.auditReceiptFilename\}[\s\S]*auditReceiptExportedAt=\{handoff\.auditReceiptExportedAt\}[\s\S]*auditReceiptFromDate=\{handoff\.auditReceiptFromDate\}[\s\S]*auditReceiptToDate=\{handoff\.auditReceiptToDate\}[\s\S]*auditReceiptSha256=\{handoff\.auditReceiptSha256\}/,
   );
 });
