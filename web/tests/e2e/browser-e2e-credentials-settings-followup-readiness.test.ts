@@ -17,6 +17,12 @@ const specs = [
   "tests/browser/admin-readiness-credentials-onboarding-usage-settings-go-live-return.smoke.spec.ts",
 ] as const;
 
+const expectedSpecTitlePatterns = [
+  /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> admin keeps readiness browser continuity/,
+  /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> verification -> admin keeps readiness browser continuity/,
+  /admin readiness credentials branch -> onboarding -> usage -> \/settings\?intent=manage-plan -> go-live -> admin keeps readiness browser continuity/,
+] as const;
+
 test("credentials settings follow-up browser batch stays wired into scripts and docs", async () => {
   const webPackageJson = JSON.parse(await readFile(webPackageJsonPath, "utf8")) as {
     scripts?: Record<string, string>;
@@ -58,4 +64,11 @@ test("credentials settings follow-up browser batch stays wired into scripts and 
     executionPlan,
     /admin readiness credentials -> onboarding -> usage -> \/settings\?intent=manage-plan -> go-live -> admin/,
   );
+
+  for (const [index, spec] of specs.entries()) {
+    const specPath = path.resolve(webDir, spec);
+    const source = await readFile(specPath, "utf8");
+    assert.match(source, expectedSpecTitlePatterns[index]);
+    assert.match(source, /intent=manage-plan/);
+  }
 });

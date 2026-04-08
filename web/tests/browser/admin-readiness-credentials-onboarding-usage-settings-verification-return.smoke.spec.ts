@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test(
-  "admin readiness credentials branch -> onboarding -> usage -> settings -> verification -> admin keeps readiness browser continuity",
+  "admin readiness credentials branch -> onboarding -> usage -> /settings?intent=manage-plan -> verification -> admin keeps readiness browser continuity",
   async ({ page }) => {
     test.slow();
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("admin readiness credentials branch -> onboarding -> usage -> settings -> admin keeps readiness browser continuity", async ({
+test("admin readiness credentials branch -> onboarding -> usage -> /settings?intent=manage-plan -> admin keeps readiness browser continuity", async ({
   page,
 }) => {
   test.slow();
