@@ -1,5 +1,6 @@
 "use client";
 
+import type { ControlPlaneAdminDeliveryUpdateKind } from "@/lib/control-plane-types";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
@@ -7,6 +8,7 @@ import { AuditExportReceiptCallout } from "@/components/audit-export-receipt-cal
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { resolveAuditExportReceiptSummary } from "@/lib/audit-export-receipt";
+import { buildRecentDeliveryDescription } from "@/lib/console-handoff";
 import { buildAdminReturnHref, buildVerificationChecklistHandoffHref } from "@/lib/handoff-query";
 import { fetchCurrentWorkspace } from "@/services/control-plane";
 
@@ -72,7 +74,7 @@ function normalizeRecentTrackKey(value?: string | null): RecentTrackKey | null {
   return null;
 }
 
-function normalizeRecentUpdateKind(value?: string | null): string | null {
+function normalizeRecentUpdateKind(value?: string | null): ControlPlaneAdminDeliveryUpdateKind | null {
   if (
     value === "verification" ||
     value === "go_live" ||
@@ -83,42 +85,6 @@ function normalizeRecentUpdateKind(value?: string | null): string | null {
     return value;
   }
   return null;
-}
-
-function deliveryTrackSummaryLabel(trackKey: RecentTrackKey | null): string | null {
-  if (trackKey === "verification") {
-    return "Verification";
-  }
-  if (trackKey === "go_live") {
-    return "Go-live";
-  }
-  return null;
-}
-
-function recentUpdateKindSummaryLabel(kind?: string | null): string | null {
-  if (kind === "verification") {
-    return "Verification updated";
-  }
-  if (kind === "go_live") {
-    return "Go-live updated";
-  }
-  if (kind === "verification_completed") {
-    return "Verification completed";
-  }
-  if (kind === "go_live_completed") {
-    return "Go-live completed";
-  }
-  if (kind === "evidence_only") {
-    return "Evidence added";
-  }
-  return null;
-}
-
-function evidenceCountSummaryLabel(count?: number | null): string | null {
-  if (typeof count !== "number") {
-    return null;
-  }
-  return `${count} evidence ${count === 1 ? "item" : "items"}`;
 }
 
 function buildSettingsIntentHref(
@@ -305,19 +271,23 @@ export function Week8VerificationChecklist({
       : verificationIncomplete
         ? "Capture verification evidence"
         : "Finalize go-live drill";
-  const recentDeliveryOwner = recentOwnerDisplayName ?? recentOwnerLabel ?? recentOwnerEmail ?? null;
-  const recentDeliverySummaryItems = [
-    deliveryTrackSummaryLabel(normalizedRecentTrackKey)
-      ? { label: "Track", value: deliveryTrackSummaryLabel(normalizedRecentTrackKey) }
-      : null,
-    recentUpdateKindSummaryLabel(normalizedRecentUpdateKind)
-      ? { label: "Latest update", value: recentUpdateKindSummaryLabel(normalizedRecentUpdateKind) }
-      : null,
-    evidenceCountSummaryLabel(evidenceCount)
-      ? { label: "Evidence", value: evidenceCountSummaryLabel(evidenceCount) }
-      : null,
-    recentDeliveryOwner ? { label: "Owner", value: recentDeliveryOwner } : null,
-  ].filter((item): item is { label: string; value: string } => item !== null);
+  const recentDeliveryMetadata = {
+    recentTrackKey: normalizedRecentTrackKey,
+    recentUpdateKind: normalizedRecentUpdateKind,
+    recentEvidenceCount: evidenceCount ?? null,
+    recentOwnerLabel: recentOwnerDisplayName ?? recentOwnerLabel ?? recentOwnerEmail ?? null,
+  };
+  const hasRecentDeliveryMetadata =
+    recentDeliveryMetadata.recentTrackKey !== null ||
+    recentDeliveryMetadata.recentUpdateKind !== null ||
+    recentDeliveryMetadata.recentEvidenceCount !== null ||
+    recentDeliveryMetadata.recentOwnerLabel !== null;
+  const recentDeliverySummary = hasRecentDeliveryMetadata
+    ? buildRecentDeliveryDescription(
+        "Keep verification notes aligned before moving to go-live.",
+        recentDeliveryMetadata,
+      )
+    : null;
   const onboardingGuidanceItems = [
     {
       id: "onboarding-guidance-api-keys",
@@ -525,23 +495,13 @@ export function Week8VerificationChecklist({
         </CardContent>
       </Card>
 
-      {recentDeliverySummaryItems.length > 0 ? (
+      {recentDeliverySummary ? (
         <Card>
           <CardHeader>
             <CardTitle>Recent delivery handoff</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3 text-sm">
-            <p className="text-muted">
-              Use the latest admin delivery metadata to keep verification notes aligned before moving to go-live.
-            </p>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-              {recentDeliverySummaryItems.map((item) => (
-                <div key={item.label} className="rounded-xl border border-border bg-background px-3 py-2">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted">{item.label}</p>
-                  <p className="mt-1 text-xs font-medium text-foreground">{item.value}</p>
-                </div>
-              ))}
-            </div>
+          <CardContent className="text-sm">
+            <p className="text-muted">{recentDeliverySummary}</p>
           </CardContent>
         </Card>
       ) : null}
