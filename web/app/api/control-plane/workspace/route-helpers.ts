@@ -1,4 +1,7 @@
-import { buildProxyControlPlanePostInit } from "../post-route-helpers";
+import {
+  buildProxyControlPlanePostInit,
+  proxyWorkspaceScopedDetailPost,
+} from "../post-route-helpers";
 import { proxyWorkspaceScopedGet } from "../get-route-helpers";
 import { proxyControlPlane, requireMetadataWorkspaceContext } from "@/lib/control-plane-proxy";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
@@ -85,21 +88,18 @@ export async function proxyWorkspaceEnterprisePost(
     initBuilder?: typeof buildWorkspaceEnterprisePostInit;
   },
 ): Promise<Response> {
-  const resolveWorkspaceContext =
-    options?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
-  const proxy = options?.proxy ?? proxyControlPlane;
   const initBuilder = options?.initBuilder ?? buildWorkspaceEnterprisePostInit;
-  const workspaceContext = await resolveWorkspaceContext();
-  const metadataGuard = requireMetadataWorkspaceContext({
-    workspaceContext,
-    message: args.metadataMessage,
-  });
-  if (metadataGuard) {
-    return metadataGuard;
-  }
-
-  return proxy(buildWorkspaceEnterprisePath(workspaceContext.workspace.workspace_id, args.suffix), {
-    workspaceContext,
-    init: await initBuilder(args.request),
+  return proxyWorkspaceScopedDetailPost({
+    request: args.request,
+    buildPath: (workspaceId) => buildWorkspaceEnterprisePath(workspaceId, args.suffix),
+    resolveWorkspaceContext:
+      options?.resolveWorkspaceContext ?? resolveWorkspaceContextForServer,
+    proxy: options?.proxy ?? proxyControlPlane,
+    initBuilder: ({ request }) => initBuilder(request),
+    beforeProxy: (workspaceContext) =>
+      requireMetadataWorkspaceContext({
+        workspaceContext,
+        message: args.metadataMessage,
+      }),
   });
 }

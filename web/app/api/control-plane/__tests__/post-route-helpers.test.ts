@@ -364,3 +364,36 @@ test("proxyWorkspaceScopedDetailPost forwards includeTenant overrides to the sha
 
   assert.equal(capturedIncludeTenant, true);
 });
+
+test("proxyWorkspaceScopedDetailPost returns guard response before building init or proxying", async () => {
+  let initBuilderCalled = false;
+  let proxyCalled = false;
+  const guardResponse = new Response("guarded", { status: 412 });
+
+  const response = await proxyWorkspaceScopedDetailPost({
+    request: new Request("https://example.com", {
+      method: "POST",
+      body: '{"ok":true}',
+    }),
+    buildPath: (workspaceId) => `/api/v1/saas/workspaces/${workspaceId}/sso`,
+    resolveWorkspaceContext: async () =>
+      ({
+        workspace: {
+          workspace_id: "ws_123",
+        },
+      }) as never,
+    beforeProxy: () => guardResponse,
+    initBuilder: async () => {
+      initBuilderCalled = true;
+      return { method: "POST" };
+    },
+    proxy: async () => {
+      proxyCalled = true;
+      return new Response("{}", { status: 200 });
+    },
+  });
+
+  assert.equal(response, guardResponse);
+  assert.equal(initBuilderCalled, false);
+  assert.equal(proxyCalled, false);
+});

@@ -443,17 +443,20 @@ test("workspace enterprise route helper keeps shared resolver/proxy injection fo
 
   assert.match(source, /import \{ proxyControlPlane, requireMetadataWorkspaceContext \} from "@\/lib\/control-plane-proxy";/);
   assert.match(source, /import \{ resolveWorkspaceContextForServer \} from "@\/lib\/workspace-context";/);
+  assert.match(
+    source,
+    /import \{[\s\S]*buildProxyControlPlanePostInit[\s\S]*proxyWorkspaceScopedDetailPost[\s\S]*\} from "\.\.\/post-route-helpers";/s,
+  );
   assert.match(source, /import \{ proxyWorkspaceScopedGet \} from "\.\.\/get-route-helpers";/);
   assert.match(source, /return proxyWorkspaceScopedGet\(/);
   assert.match(source, /getPath:\s*\(workspaceContext\)\s*=>\s*buildWorkspaceEnterpriseGetPath\(workspaceContext\.workspace\.workspace_id,\s*suffix,\s*options\?\.request\)/s);
   assert.match(source, /init:\s*buildWorkspaceEnterpriseGetInit\(options\)/);
-  assert.match(source, /const resolveWorkspaceContext =\s*options\?\.resolveWorkspaceContext \?\? resolveWorkspaceContextForServer;/);
-  assert.match(source, /const proxy = options\?\.proxy \?\? proxyControlPlane;/);
-  assert.match(source, /const workspaceContext = await resolveWorkspaceContext\(\);/);
   assert.match(source, /const initBuilder = options\?\.initBuilder \?\? buildWorkspaceEnterprisePostInit;/);
-  assert.match(source, /const metadataGuard = requireMetadataWorkspaceContext\(\{/);
-  assert.match(source, /return proxy\(buildWorkspaceEnterprisePath\(workspaceContext\.workspace\.workspace_id,\s*args\.suffix\),\s*\{/);
-  assert.match(source, /workspaceContext,\s*init:\s*await initBuilder\(args\.request\)/s);
+  assert.match(source, /return proxyWorkspaceScopedDetailPost\(\{/);
+  assert.match(source, /buildPath:\s*\(workspaceId\)\s*=>\s*buildWorkspaceEnterprisePath\(workspaceId,\s*args\.suffix\)/);
+  assert.match(source, /initBuilder:\s*\(\{\s*request\s*\}\)\s*=>\s*initBuilder\(request\)/);
+  assert.match(source, /beforeProxy:\s*\(workspaceContext\)\s*=>\s*requireMetadataWorkspaceContext\(\{/s);
+  assert.match(source, /message:\s*args\.metadataMessage/);
 });
 
 test("workspace collection route helper composes workspace path and fallback GET proxy", async () => {

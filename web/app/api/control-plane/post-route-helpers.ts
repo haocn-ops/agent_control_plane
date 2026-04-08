@@ -1,5 +1,5 @@
 import { proxyControlPlane } from "@/lib/control-plane-proxy";
-import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
+import { resolveWorkspaceContextForServer, type WorkspaceContext } from "@/lib/workspace-context";
 
 export type WorkspaceScopedHeaderContext = {
   subject_id?: string | null;
@@ -160,11 +160,16 @@ export async function proxyWorkspaceScopedDetailPost(args: {
   resolveWorkspaceContext?: typeof resolveWorkspaceContextForServer;
   proxy?: typeof proxyControlPlane;
   initBuilder?: typeof buildProxyControlPlanePostInit;
+  beforeProxy?: (workspaceContext: WorkspaceContext) => Response | null;
 }): Promise<Response> {
   const resolveContext = args.resolveWorkspaceContext ?? resolveWorkspaceContextForServer;
   const proxy = args.proxy ?? proxyControlPlane;
   const initBuilder = args.initBuilder ?? buildProxyControlPlanePostInit;
   const workspaceContext = await resolveContext();
+  const guardResponse = args.beforeProxy?.(workspaceContext);
+  if (guardResponse) {
+    return guardResponse;
+  }
   const workspaceId = workspaceContext.workspace.workspace_id;
 
   return proxy(args.buildPath(workspaceId), {
