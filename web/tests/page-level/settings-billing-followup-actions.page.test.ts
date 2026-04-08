@@ -58,7 +58,10 @@ test("settings intent cards keep follow-up links mapped to evidence surfaces", a
   assert.match(source, /highlights:\s*\[/);
   assert.match(source, /\{ label: "Current run", value: latestDemoRun\?\.run_id \?\? runId \?\? "No demo run linked" \}/);
   assert.match(source, /\{ label: "Run status", value: rollbackStatusLabel \}/);
-  assert.match(source, /\{ label: "Latest hint", value: latestDemoRunHint \?\? "Record the recovery decision in verification notes\." \}/);
+  assert.match(
+    source,
+    /\{\s*label: "Latest hint",\s*value: latestDemoRunHint\?\.status_label \?\? "Record the recovery decision in verification notes\.",\s*\}/,
+  );
   assert.match(source, /Navigation only: this rollback lane preserves run-aware handoff context across playground, verification, usage, and admin\./);
   assert.match(
     source,

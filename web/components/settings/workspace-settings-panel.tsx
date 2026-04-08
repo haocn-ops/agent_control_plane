@@ -1372,7 +1372,10 @@ export function WorkspaceSettingsPanel({
       highlights: [
         { label: "Current run", value: latestDemoRun?.run_id ?? runId ?? "No demo run linked" },
         { label: "Run status", value: rollbackStatusLabel },
-        { label: "Latest hint", value: latestDemoRunHint ?? "Record the recovery decision in verification notes." },
+        {
+          label: "Latest hint",
+          value: latestDemoRunHint?.status_label ?? "Record the recovery decision in verification notes.",
+        },
         { label: "Owner", value: rollbackOwnerSummary },
       ],
     },
