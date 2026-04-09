@@ -109,7 +109,7 @@ export function AdminFocusBar({
               {chip.clearHref ? (
                 <Link
                   href={chip.clearHref}
-                  className="rounded-full border border-border p-0.5 text-[0.55rem] font-semibold uppercase tracking-wide text-muted hover:text-foreground"
+                  className="scroll-mt-36 rounded-full border border-border p-0.5 text-[0.55rem] font-semibold uppercase tracking-wide text-muted hover:text-foreground lg:scroll-mt-44"
                 >
                   Clear
                 </Link>
@@ -121,7 +121,7 @@ export function AdminFocusBar({
           <div>
             <Link
               href={clearAllHref}
-              className="text-[0.65rem] font-medium text-foreground underline underline-offset-4"
+              className="scroll-mt-36 text-[0.65rem] font-medium text-foreground underline underline-offset-4 lg:scroll-mt-44"
             >
               Clear all focus
             </Link>
