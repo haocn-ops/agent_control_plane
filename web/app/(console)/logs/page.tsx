@@ -66,6 +66,7 @@ export default async function LogsPage({
     runId: activeRunId,
   });
   const adminHref = adminLinkState.adminHref;
+  const adminReturnActionsHref = "#logs-admin-return-actions";
   const auditExportLinks = [
     { label: "Reopen Latest export receipt", path: "/settings?intent=upgrade" },
     { label: "Carry proof to verification", path: "/verification?surface=verification" },
@@ -90,7 +91,11 @@ export default async function LogsPage({
         </CardHeader>
         <CardContent className="space-y-3 text-sm text-muted">
           <p>{auditExportCallout.body}</p>
-          <div className="flex flex-wrap gap-2">
+          <p>
+            Use the <Link href={adminReturnActionsHref}>admin return action below</Link> once the log evidence is ready
+            to hand back.
+          </p>
+          <div id="logs-admin-return-actions" className="flex flex-wrap gap-2">
             {auditExportLinks.map((link) => (
               <Link
                 key={link.label}

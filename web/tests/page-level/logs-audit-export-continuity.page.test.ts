@@ -31,6 +31,7 @@ test("logs page keeps audit export continuity callout", async () => {
   assert.match(source, /handoff: runAwareHandoff,/);
   assert.match(source, /runId: activeRunId,/);
   assert.match(source, /const adminHref = adminLinkState\.adminHref;/);
+  assert.match(source, /const adminReturnActionsHref = "#logs-admin-return-actions";/);
   assert.match(
     source,
     /<ConsoleAdminFollowUp[\s\S]*handoff=\{runAwareHandoff\}[\s\S]*surface="logs"[\s\S]*workspaceSlug=\{workspaceContext\.workspace\.slug\}/,
@@ -38,6 +39,8 @@ test("logs page keeps audit export continuity callout", async () => {
   assert.match(source, /{ label: "Reopen Latest export receipt", path: "\/settings\?intent=upgrade" }/);
   assert.match(source, /{ label: "Carry proof to verification", path: "\/verification\?surface=verification" }/);
   assert.match(source, /{ label: "Align go-live drill", path: "\/go-live\?surface=go_live" }/);
+  assert.match(source, /<Link href=\{adminReturnActionsHref\}>admin return action below<\/Link>/);
+  assert.match(source, /<div id="logs-admin-return-actions" className="flex flex-wrap gap-2">/);
   assert.match(source, /href=\{buildConsoleRunAwareHandoffHref\(link\.path, runAwareHandoff, activeRunId\)\}/);
   assert.match(source, /href=\{adminHref\}/);
   assert.match(source, /adminLinkState\.adminLinkLabel/);
