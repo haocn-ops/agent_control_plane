@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { linkByHrefFragments } from "./support/navigation";
+
 const settingsEntry =
   "/settings?source=admin-readiness&week8_focus=credentials&attention_workspace=preview&attention_organization=org_preview&delivery_context=recent_activity&recent_track_key=go_live&recent_update_kind=go_live&evidence_count=2&recent_owner_label=Ops&recent_owner_display_name=Avery%20Ops&recent_owner_email=avery.ops%40govrail.test";
 
@@ -12,7 +14,9 @@ test("settings -> go-live -> admin keeps handoff continuity", async ({ page }) =
   await expect(page.getByText("Admin follow-up context")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Enterprise evidence lane" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dedicated environment evidence lane" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Rehearse go-live readiness" })).toBeVisible();
+  await expect(
+    linkByHrefFragments(page, "Rehearse go-live readiness", "/go-live?surface=go_live"),
+  ).toBeVisible();
 
   const dedicatedUpgradeLink = page
     .getByText(/Dedicated environment delivery is exposed as a plan-gated readiness surface in this slice\./)
