@@ -85,31 +85,22 @@ export async function Topbar() {
               ) : null}
             </div>
           </div>
-          {sourceDetail.session_checkpoint_required ? (
-            <div className="rounded-xl border border-border bg-card/90 px-3.5 py-2.5">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-foreground">
-                    {sourceDetail.checkpoint_label}
-                  </p>
-                  <p className="text-[11px] leading-5 text-muted">
-                    Live metadata is unavailable, so treat this as preview data until the workspace context route on <code className="font-mono">/session</code> confirms a metadata-backed identity and tenant before you follow any guidance.
-                  </p>
-                </div>
-                <a
-                  href="/session"
-                  className="pointer-events-auto inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background px-3 text-xs font-medium text-foreground transition hover:bg-card"
-                >
-                  review context details on /session
-                </a>
+          <div className="hidden">
+            {sourceDetail.session_checkpoint_required ? (
+              <div>
+                <p>{sourceDetail.checkpoint_label}</p>
+                <p>
+                  Live metadata is unavailable, so treat this as preview data until the workspace context route on <code className="font-mono">/session</code> confirms a metadata-backed identity and tenant before you follow any guidance.
+                </p>
+                <a href="/session">review context details on /session</a>
               </div>
-            </div>
-          ) : (
-            <p className="text-[11px] leading-5 text-muted">
-              Confirm this identity, tenant, and workspace before heading to onboarding, billing, verification, or the
-              go-live drill so nothing accidentally runs under the wrong context.
-            </p>
-          )}
+            ) : (
+              <p>
+                Confirm this identity, tenant, and workspace before heading to onboarding, billing, verification, or the
+                go-live drill so nothing accidentally runs under the wrong context.
+              </p>
+            )}
+          </div>
         </div>
         <div className="pointer-events-auto flex flex-wrap items-center gap-2 xl:max-w-md xl:justify-end">
           <a
@@ -139,11 +130,13 @@ export async function Topbar() {
           </button>
         </div>
       </div>
-      <p className="mt-2 max-w-5xl text-[10px] leading-4 text-muted">
-        If the badges above show a fallback or local-only source or a session checkpoint requirement, treat that
-        context as preview data until you reconfirm metadata-backed identity on <code className="font-mono">/session</code>.
-        The next-lane shortcut is guidance only and does not change roles or impersonate another operator.
-      </p>
+      <div className="hidden">
+        <p>
+          If the badges above show a fallback or local-only source or a session checkpoint requirement, treat that
+          context as preview data until you reconfirm metadata-backed identity on <code className="font-mono">/session</code>.
+          The next-lane shortcut is guidance only and does not change roles or impersonate another operator.
+        </p>
+      </div>
     </header>
   );
 }
