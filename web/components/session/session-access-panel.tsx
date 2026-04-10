@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 
+import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { WorkspaceContext } from "@/lib/workspace-context";
@@ -188,6 +189,19 @@ export function SessionAccessPanel({ workspaceContext, handoff }: SessionAccessP
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          <div className="space-y-2 rounded-2xl border border-border bg-background p-4">
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-[0.15em] text-muted">Workspace context control</p>
+              <p className="text-xs text-muted">
+                Use workspace switching here on the session surface, then continue into onboarding, billing,
+                verification, or go-live once the context looks correct.
+              </p>
+            </div>
+            <WorkspaceSwitcher
+              currentWorkspaceSlug={workspaceContext.workspace.slug}
+              workspaces={workspaceContext.available_workspaces}
+            />
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-2xl border border-border bg-background p-4">
               <p className="text-xs uppercase tracking-[0.15em] text-muted">User</p>

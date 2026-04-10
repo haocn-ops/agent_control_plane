@@ -1,8 +1,6 @@
-import { Bell, Search } from "lucide-react";
+import { Bell } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { WorkspaceSwitcher } from "@/components/workspace-switcher";
 import { resolveWorkspaceContextForServer } from "@/lib/workspace-context";
 
 function normalizeRole(raw: string | null | undefined): string | null {
@@ -54,18 +52,6 @@ export async function Topbar() {
     <header className="pointer-events-none sticky top-0 z-20 border-b border-border bg-background/95 px-5 py-3 backdrop-blur">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-col gap-2.5 lg:flex-row lg:items-start">
-            <div className="pointer-events-auto relative w-full lg:max-w-xs">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-              <Input className="pl-10" placeholder="Search workspace or run" />
-            </div>
-            <div className="pointer-events-auto min-w-0 flex-1">
-              <WorkspaceSwitcher
-                currentWorkspaceSlug={workspaceContext.workspace.slug}
-                workspaces={workspaceContext.available_workspaces}
-              />
-            </div>
-          </div>
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge variant="strong" className="px-2.5 py-0.5 text-[11px]">
               {workspaceContext.workspace.display_name}
@@ -92,9 +78,7 @@ export async function Topbar() {
               {sourceDetail.checkpoint_label}
             </Badge>
             {sourceDetail.local_only ? <Badge variant="default">local-only context</Badge> : null}
-            <Badge variant="subtle" className="px-2 py-0.5 text-[11px]">
-              workspaces: {workspaceCount}
-            </Badge>
+            <Badge variant="subtle" className="px-2 py-0.5 text-[11px]">workspaces: {workspaceCount}</Badge>
             <div className="hidden">
               {sourceDetail.warning ? (
                 <Badge variant="default">review context details on /session</Badge>
