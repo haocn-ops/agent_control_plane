@@ -61,55 +61,49 @@ export function WorkspaceSwitcher({
   }
 
   return (
-    <div className="rounded-xl border border-border/80 bg-card/70 px-3 py-2.5">
-      <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-        <div className="space-y-1.5">
-          <div className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-muted">
-            <span className="uppercase tracking-[0.15em]">Workspace</span>
-            <span>{workspaceCountLabel(workspaces.length)}</span>
-            <span>·</span>
-            <span>current: {currentWorkspaceSlug}</span>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              className="min-w-[190px] rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none disabled:opacity-70"
-              value={selected}
-              disabled={isSaving}
-              onChange={(event) => {
-                const nextSlug = event.currentTarget.value;
-                const nextState = beginWorkspaceSwitcherSelection(viewState, nextSlug);
-                if (!nextState) {
-                  return;
-                }
-                const previousSlug = selected;
-                setViewState(nextState);
-                startTransition(() => {
-                  void switchWorkspace(nextSlug, previousSlug);
-                });
-              }}
-              aria-label="Select workspace"
-            >
-              {workspaces.map((workspace) => (
-                <option key={workspace.workspace_id} value={workspace.slug}>
-                  {workspace.display_name}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-3 text-[11px] font-medium text-foreground transition hover:bg-card"
-              onClick={() => setShowGuidance((value) => !value)}
-              aria-expanded={showGuidance}
-            >
-              {showGuidance ? "Hide context guidance" : "Workspace guidance"}
-            </button>
-            {isSaving ? <span className="text-[11px] text-muted">syncing...</span> : null}
-          </div>
+    <div className="rounded-lg border border-border/50 bg-background/35 px-3 py-2">
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-[0.12em] text-muted">
+          <span className="uppercase tracking-[0.15em]">Workspace</span>
+          <span>{workspaceCountLabel(workspaces.length)}</span>
+          <span>·</span>
+          <span>current: {currentWorkspaceSlug}</span>
         </div>
-        <p className="max-w-xs text-[10px] leading-4 text-muted">
-          Switch workspaces only after you confirm the current identity and tenant, then visit onboarding, billing,
-          verification, or go-live with the correct context.
-        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="min-w-[190px] rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground outline-none disabled:opacity-70"
+            value={selected}
+            disabled={isSaving}
+            onChange={(event) => {
+              const nextSlug = event.currentTarget.value;
+              const nextState = beginWorkspaceSwitcherSelection(viewState, nextSlug);
+              if (!nextState) {
+                return;
+              }
+              const previousSlug = selected;
+              setViewState(nextState);
+              startTransition(() => {
+                void switchWorkspace(nextSlug, previousSlug);
+              });
+            }}
+            aria-label="Select workspace"
+          >
+            {workspaces.map((workspace) => (
+              <option key={workspace.workspace_id} value={workspace.slug}>
+                {workspace.display_name}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-3 text-[11px] font-medium text-foreground transition hover:bg-card"
+            onClick={() => setShowGuidance((value) => !value)}
+            aria-expanded={showGuidance}
+          >
+            {showGuidance ? "Hide context guidance" : "Workspace guidance"}
+          </button>
+          {isSaving ? <span className="text-[11px] text-muted">syncing...</span> : null}
+        </div>
       </div>
       {errorMessage ? (
         <p className="mt-3 text-[11px] text-amber-700" role="status">
@@ -123,6 +117,10 @@ export function WorkspaceSwitcher({
       ) : null}
       {showGuidance ? (
         <div className="mt-2 grid gap-2 rounded-lg border border-border bg-background px-3 py-3 text-[11px] leading-5 text-muted">
+          <p>
+            Switch workspaces only after you confirm the current identity and tenant, then visit onboarding, billing,
+            verification, or go-live with the correct context.
+          </p>
           <p>
             This control only updates the console's manual workspace context. Keep an eye on the topbar badges: if
             they show fallback or local-only context, it means metadata-backed session data isn't available yet, so revisit <code className="font-mono">/session</code> before trusting the next lane.
